@@ -23,7 +23,7 @@ export default function App() {
         {/* ヘッダーエリア：洗練されたタイポグラフィ */}
         <header className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-800 pb-6 mb-10">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white md:text-3xl">Workspace Dashboard</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-white md:text-3xl">Task Management System</h1>
             <p className="text-slate-400 text-sm mt-1">業務タスクの進捗とステータスを統合管理します。</p>
           </div>
           <div className="mt-4 md:mt-0">
