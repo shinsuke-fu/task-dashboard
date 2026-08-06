@@ -39,7 +39,7 @@ export default function App() {
           <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-800 rounded-xl overflow-hidden shadow-xl">
             {/* テーブルヘッダー */}
             <div className="px-6 py-4 border-b border-slate-800 bg-slate-800/80 flex items-center justify-between">
-              <h2 className="text-sm font-semibold tracking-wider uppercase text-slate-400">Current Tasks</h2>
+              <h2 className="text-sm font-semibold tracking-wider uppercase text-slate-400">Task List</h2>
               <span className="text-xs text-slate-500">{tasks.length} tasks allocated</span>
             </div>
 
