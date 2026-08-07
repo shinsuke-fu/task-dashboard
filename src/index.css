@@ -1,1 +1,51 @@
 @import "tailwindcss";
+
+/* 💡 Tailwind v4 のカスタムテーマ定義 */
+@theme {
+  --color-base: var(--theme-base);
+  --color-surface: var(--theme-surface);
+  --color-card: var(--theme-card);
+  --color-text-main: var(--theme-text-main);
+  --color-text-sub: var(--theme-text-sub);
+  --color-accent: var(--theme-accent);
+  --color-border-card: var(--theme-border-card);
+}
+
+/* 🌿 1. SAGE MATTE DARK (デフォルト：ご指定の 3DA889 を深く沈めたマットダークグリーン) */
+:root, [data-theme="sage-dark"] {
+  --theme-base: #111a16;       /* 3DA889 の色調のまま明度を限界まで落とした深い背景 */
+  --theme-surface: rgba(21, 36, 30, 0.4); 
+  --theme-card: #1b2e26;       /* 背景より一段明るくしてメリハリを出す */
+  --theme-text-main: #f0f7f4;  /* クッキリ見える極薄セージの白 */
+  --theme-text-sub: #7fa494;   /* 読みやすいミドルグリーン */
+  --theme-accent: #3DA889;     /* ★ご指定のセージグリーンがそのままアクセントに */
+  --theme-border-card: #284439; 
+}
+
+/* 🧱 2. TERRACOTTA MATTE DARK (ご指定の C65E56 を深く沈めたマットダークレッド・ココア) */
+[data-theme="terracotta-dark"] {
+  --theme-base: #1c1110;       /* C65E56 の色調のまま明度を限界まで落とした深い背景 */
+  --theme-surface: rgba(40, 24, 22, 0.4); 
+  --theme-card: #331f1d;       
+  --theme-text-main: #fbf5f4;  
+  --theme-text-sub: #b8918d;   
+  --theme-accent: #C65E56;     /* ★ご指定のテラコッタローズがそのままアクセントに */
+  --theme-border-card: #4d2f2c; 
+}
+
+/* 🌾 3. BRONZE GOLD MATTE DARK (ご指定の E8DFAC を深く沈めたマットダークイエロー・真鍮) */
+[data-theme="bronze-dark"] {
+  --theme-base: #1a1811;       /* E8DFAC の色調のまま明度を限界まで落とした深い背景 */
+  --theme-surface: rgba(38, 35, 23, 0.4); 
+  --theme-card: #302d1d;       
+  --theme-text-main: #fdfdfb;  
+  --theme-text-sub: #adab93;   
+  --theme-accent: #E8DFAC;     /* ★ご指定のサンドゴールドがそのままアクセントに */
+  --theme-border-card: #4a452a; 
+}
+
+body {
+  background-color: var(--theme-base);
+  color: var(--theme-text-main);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
