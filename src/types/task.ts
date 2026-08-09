@@ -21,4 +21,13 @@ export interface Task {
   returnReason?: string;  // 💡 追加：差し戻し理由のコメント
 }
 
-export type AppTheme = 'sage-dark' | 'terracotta-dark' | 'bronze-dark';
+export type AppTheme =
+  | 'sage-dark'
+  | 'terracotta-dark'
+  | 'bronze-dark'
+  | 'ocean-dark'
+  | 'amethyst-dark'
+  | 'graphite-dark'
+  | 'lime-dark'
+  | 'light'
+  | 'coffee-dark';
