@@ -100,6 +100,12 @@ export default function App() {
     'sage-dark': 'SAGE',
     'terracotta-dark': 'TERRACOTTA',
     'bronze-dark': 'BRONZE',
+    'ocean-dark': 'OCEAN',
+    'amethyst-dark': 'AMETHYST',
+    'graphite-dark': 'GRAPHITE',
+    'lime-dark': 'LIME',
+    'light': 'LIGHT',
+    'coffee-dark': 'COFFEE',
   };
 
   return (

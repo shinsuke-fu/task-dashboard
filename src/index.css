@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
-/* 💡 Tailwind v4 のカスタムテーマ定義 */
+/* =========================================================
+   Tailwind v4 カスタムテーマ定義
+   ========================================================= */
 @theme {
   --color-base: var(--theme-base);
   --color-surface: var(--theme-surface);
@@ -11,38 +13,160 @@
   --color-border-card: var(--theme-border-card);
 }
 
-/* 🌿 1. SAGE MATTE DARK (デフォルト：ご指定の 3DA889 を深く沈めたマットダークグリーン) */
-:root, [data-theme="sage-dark"] {
-  --theme-base: #111a16;       /* 3DA889 の色調のまま明度を限界まで落とした深い背景 */
-  --theme-surface: rgba(21, 36, 30, 0.4); 
-  --theme-card: #1b2e26;       /* 背景より一段明るくしてメリハリを出す */
-  --theme-text-main: #f0f7f4;  /* クッキリ見える極薄セージの白 */
-  --theme-text-sub: #7fa494;   /* 読みやすいミドルグリーン */
-  --theme-accent: #3DA889;     /* ★ご指定のセージグリーンがそのままアクセントに */
-  --theme-border-card: #284439; 
+
+/* =========================================================
+   🌿 1. SAGE MATTE DARK
+   Calm / Natural / Productivity
+   ========================================================= */
+:root,
+[data-theme="sage-dark"] {
+  --theme-base: #0e1714;
+  --theme-surface: rgba(18, 31, 26, 0.45);
+  --theme-card: #152821;
+
+  --theme-text-main: #e9f3ee;
+  --theme-text-sub: #7fa494;
+
+  --theme-accent: #3da889;
+  --theme-border-card: #234236;
 }
 
-/* 🧱 2. TERRACOTTA MATTE DARK (ご指定の C65E56 を深く沈めたマットダークレッド・ココア) */
+
+/* =========================================================
+   🧱 2. TERRACOTTA MATTE DARK
+   Warm / Creative / Comfortable
+   ========================================================= */
 [data-theme="terracotta-dark"] {
-  --theme-base: #1c1110;       /* C65E56 の色調のまま明度を限界まで落とした深い背景 */
-  --theme-surface: rgba(40, 24, 22, 0.4); 
-  --theme-card: #331f1d;       
-  --theme-text-main: #fbf5f4;  
-  --theme-text-sub: #b8918d;   
-  --theme-accent: #C65E56;     /* ★ご指定のテラコッタローズがそのままアクセントに */
-  --theme-border-card: #4d2f2c; 
+  --theme-base: #180f0e;
+  --theme-surface: rgba(32, 18, 16, 0.45);
+  --theme-card: #281b19;
+
+  --theme-text-main: #f7eeec;
+  --theme-text-sub: #b8918d;
+
+  --theme-accent: #c65e56;
+  --theme-border-card: #472c28;
 }
 
-/* 🌾 3. BRONZE GOLD MATTE DARK (ご指定の E8DFAC を深く沈めたマットダークイエロー・真鍮) */
+
+/* =========================================================
+   🥂 3. BRONZE GOLD MATTE DARK
+   Premium / Elegant / Mature
+   ========================================================= */
 [data-theme="bronze-dark"] {
-  --theme-base: #1a1811;       /* E8DFAC の色調のまま明度を限界まで落とした深い背景 */
-  --theme-surface: rgba(38, 35, 23, 0.4); 
-  --theme-card: #302d1d;       
-  --theme-text-main: #fdfdfb;  
-  --theme-text-sub: #adab93;   
-  --theme-accent: #E8DFAC;     /* ★ご指定のサンドゴールドがそのままアクセントに */
-  --theme-border-card: #4a452a; 
+  --theme-base: #16140f;
+  --theme-surface: rgba(28, 27, 18, 0.45);
+  --theme-card: #272315;
+
+  --theme-text-main: #f7f6ef;
+  --theme-text-sub: #adab93;
+
+  --theme-accent: #d8c77a;
+  --theme-border-card: #3f3a22;
 }
+
+
+/* =========================================================
+   🌊 4. NAVY / OCEAN BLUE
+   Business / Tech / Reliable
+   ========================================================= */
+[data-theme="ocean-dark"] {
+  --theme-base: #0d1117;
+  --theme-surface: rgba(17, 24, 32, 0.45);
+  --theme-card: #151f2b;
+
+  --theme-text-main: #e6edf7;
+  --theme-text-sub: #8aa1b8;
+
+  --theme-accent: #3b9eff;
+  --theme-border-card: #26384b;
+}
+
+
+/* =========================================================
+   🪻 5. AMETHYST PURPLE
+   Creative / AI / Modern
+   ========================================================= */
+[data-theme="amethyst-dark"] {
+  --theme-base: #120f18;
+  --theme-surface: rgba(20, 16, 27, 0.45);
+  --theme-card: #1b1623;
+
+  --theme-text-main: #eee9f7;
+  --theme-text-sub: #a999bd;
+
+  --theme-accent: #a778fa;
+  --theme-border-card: #342c43;
+}
+
+
+/* =========================================================
+   ⚫ 6. GRAPHITE
+   Modern / SaaS / Minimal
+   ========================================================= */
+[data-theme="graphite-dark"] {
+  --theme-base: #101214;
+  --theme-surface: rgba(24, 27, 31, 0.45);
+  --theme-card: #1e2227;
+
+  --theme-text-main: #f1f3f5;
+  --theme-text-sub: #8b949e;
+
+  --theme-accent: #4dd4c0;
+  --theme-border-card: #30363d;
+}
+
+
+/* =========================================================
+   🟢 7. LIME
+   Startup / Energetic / Modern
+   ========================================================= */
+[data-theme="lime-dark"] {
+  --theme-base: #111312;
+  --theme-surface: rgba(25, 28, 26, 0.45);
+  --theme-card: #202522;
+
+  --theme-text-main: #f0f2ef;
+  --theme-text-sub: #909890;
+
+  --theme-accent: #b7d94c;
+  --theme-border-card: #30372f;
+}
+
+
+/* =========================================================
+   ☀️ 8. LIGHT
+   Clean / Minimal / Bright
+   ========================================================= */
+[data-theme="light"] {
+  --theme-base: #f5f6f4;
+  --theme-surface: rgba(236, 239, 236, 0.75);
+  --theme-card: #ffffff;
+
+  --theme-text-main: #1a211e;
+  --theme-text-sub: #68736d;
+
+  --theme-accent: #3da889;
+  --theme-border-card: #d9dfdb;
+}
+
+
+/* =========================================================
+   ☕ 9. COFFEE
+   Warm / Soft / Premium
+   ========================================================= */
+[data-theme="coffee-dark"] {
+  --theme-base: #151211;
+  --theme-surface: rgba(33, 27, 24, 0.45);
+  --theme-card: #2a211d;
+
+  --theme-text-main: #f6f0eb;
+  --theme-text-sub: #a99a90;
+
+  --theme-accent: #e39a78;
+  --theme-border-card: #40332d;
+}
+
 
 body {
   background-color: var(--theme-base);
