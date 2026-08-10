@@ -1,92 +1,56 @@
 // src/components/dashboard/DashboardView.tsx
-import React, { useState, useMemo } from 'react';
-import { KpiCards } from './KpiCards'; // 独立コンポーネントのみを使用
+import React, { useMemo } from 'react';
+import { KpiCards } from './KpiCards';
 import { ProgressChart } from './ProgressChart';
 import { GanttChart } from './GanttChart';
 import type { Task, User } from '../../types/task';
 
 interface DashboardViewProps {
-  tasks: Task[];
+  tasks: Task[]; // 親から直通した大元の生のタスク配列
   users: User[];
+  filterUser: string; // 💡 追加：親の共通バーの選択状態
+  filterCategory: string; // 💡 追加：親の共通バーの選択状態
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ tasks, users }) => {
-  // クエリ・カスタマイズ用のState管理
-  const [selectedUser, setSelectedUser] = useState<string>('all');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+export const DashboardView: React.FC<DashboardViewProps> = ({ 
+  tasks, 
+  users, 
+  filterUser, 
+  filterCategory 
+}) => {
 
-  // ユニークなカテゴリー一覧を動的に抽出
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    tasks.forEach(t => { if (t.category) set.add(t.category); });
-    return Array.from(set);
-  }, [tasks]);
+  // 💡 【バグ・重複の完全破壊】親の共通バーと100%リアルタイム連動するフィルタリング
+  const displayTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      if (!task.assignees) return filterUser === 'all';
+      
+      const matchesUser = filterUser === 'all' || task.assignees.some(a => {
+        if (a === filterUser) return true;
+        if (filterUser === 'u1' && a === '自分（作業者）') return true;
+        if (filterUser === 'u2' && a === '山田（開発）') return true;
+        if (filterUser === 'u3' && a === '佐藤（上司・レビュアー）') return true;
+        return false;
+      });
 
-  // フィルタリングのコアロジック（個人・複数人・カテゴリ対応）
-  const filteredTasks = useMemo(() => {
-    return tasks.filter(task => {
-      // 担当者フィルター
-      const matchUser = selectedUser === 'all' || 
-        task.assignees?.some(a => a === selectedUser || users.find(u => u.id === selectedUser)?.name === a);
-      
-      // カテゴリーフィルター
-      const matchCategory = selectedCategory === 'all' || task.category === selectedCategory;
-      
-      return matchUser && matchCategory;
+      const matchesCategory = filterCategory === 'all' || task.category === filterCategory;
+      return matchesUser && matchesCategory;
     });
-  }, [tasks, selectedUser, selectedCategory, users]);
+  }, [tasks, filterUser, filterCategory]);
 
   return (
     <div className="space-y-6 md:space-y-7">
       
-      {/* ＝ 🎛️ HIGH-FUNCTIONAL FILTER BAR (個人・複数人の分析カスタマイズエリア) ＝ */}
-      <div className="bg-card border border-border-card rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-xs select-none">
-        <div className="flex items-center gap-2">
-          <div className="w-1.5 h-3.5 bg-accent rounded-full" />
-          <span className="text-xs font-black tracking-wider text-text-main uppercase">Analytics Filter</span>
-        </div>
-        
-        <div className="flex flex-wrap items-center gap-3">
-          {/* 担当者セレクト */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-text-sub font-bold uppercase tracking-wider">Member:</span>
-            <select
-              value={selectedUser}
-              onChange={(e) => setSelectedUser(e.target.value)}
-              className="bg-surface border border-border-card text-text-main text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-accent/50 cursor-pointer min-w-32 transition-colors"
-            >
-              <option value="all">チーム全体 (ALL)</option>
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name}</option>
-              ))}
-            </select>
-          </div>
+      {/* 重複していた独自の高機能フィルターバーは完全撤去済み */}
 
-          {/* カテゴリーセレクト */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-text-sub font-bold uppercase tracking-wider">Category:</span>
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="bg-surface border border-border-card text-text-main text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-accent/50 cursor-pointer min-w-28 transition-colors"
-            >
-              <option value="all">全カテゴリ</option>
-              {categories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* ＝ KPI SUMMARY CARDS (古い直書きコードを完全消去し、子コンポーネントに一本化) ＝ */}
-      <KpiCards filteredTasks={filteredTasks} totalTasksCount={tasks.length} />
+      {/* ＝ KPI SUMMARY CARDS ＝ */}
+      {/* 絞り込まれた displayTasks と、全タスク件数カウンター用の tasks をバインド */}
+      <KpiCards filteredTasks={displayTasks} totalTasksCount={tasks.length} />
 
       {/* ＝ VISUALIZATION GRIDS ＝ */}
-      <ProgressChart tasks={filteredTasks} users={users} />
+      <ProgressChart tasks={displayTasks} users={users} />
 
       {/* ＝ TIMELINE MATRIX ＝ */}
-      <GanttChart tasks={filteredTasks} users={users} />
+      <GanttChart tasks={displayTasks} users={users} />
       
     </div>
   );

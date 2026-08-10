@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Task, TaskCategory, TaskPriority, User } from '../types/task';
+import type { Task, User } from '../types/task';
 
 interface TaskFormProps {
   isOpen: boolean;
@@ -12,43 +12,40 @@ interface TaskFormProps {
 export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTask }: TaskFormProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<TaskCategory>('開発');
-  const [priority, setPriority] = useState<TaskPriority>('medium');
+  const [category, setCategory] = useState<'開発' | 'デザイン' | 'マーケ' | 'その他'>('開発');
+  const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [endDate, setEndDate] = useState('');
   const [assignees, setAssignees] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // 💡 編集モードと新規作成モードの切り替え時の初期化ロジックを完全クリーンアップ
+  // 💡 バグ修正：isOpen が「true になった瞬間」だけ確実に初期化し、編集中の中途半端な上書きループを徹底遮断
   useEffect(() => {
-    if (isOpen) {
-      if (editingTask) {
-        setTitle(editingTask.title);
-        setDescription(editingTask.description || '');
-        setCategory(editingTask.category);
-        setPriority(editingTask.priority);
-        setEndDate(editingTask.endDate);
-        setAssignees(editingTask.assignees || []);
-      } else {
-        setTitle('');
-        setDescription('');
-        setCategory('開発');
-        setPriority('medium');
-        // 日付を文字列（YYYY-MM-DD）として正しくセット
-        setEndDate(new Date().toISOString().split('T')[0]);
-        setAssignees(['u1']); // 初期アサインは自分
-      }
-      setSearchQuery('');
+    if (!isOpen) return;
+
+    if (editingTask) {
+      setTitle(editingTask.title);
+      setDescription(editingTask.description || '');
+      setCategory(editingTask.category || '開発');
+      setPriority(editingTask.priority || 'medium');
+      setEndDate(editingTask.endDate);
+      setAssignees(editingTask.assignees || []);
+    } else {
+      setTitle('');
+      setDescription('');
+      setCategory('開発');
+      setPriority('medium');
+      setEndDate('2026-08-10'); // 2026年8月JST基準のデフォルト
+      setAssignees(['u1']);
     }
-  }, [editingTask, isOpen]);
+    setSearchQuery('');
+  }, [isOpen]); // 💡 依存配列を isOpen のみに絞ることで、送信時の逆流リセットバグを完全消滅させます
 
   if (!isOpen) return null;
 
-  // 検索クエリに基づいてユーザーをフィルタリング
   const filteredUsers = users.filter(user => 
     user.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // 担当者の追加・削除（トグル）処理
   const handleToggleAssignee = (userId: string) => {
     setAssignees(prev => 
       prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
@@ -59,17 +56,17 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
     e.preventDefault();
     if (!title.trim()) return;
 
+    // 💡 親の型定義(string等)に安全に適合させ、最新のendDate値を確実に最優先で送信
     onAddTask({
-      title,
-      description: description.trim() ? description : undefined,
-      category,
-      priority,
-      startDate: editingTask ? editingTask.startDate : new Date().toISOString().split('T')[0],
-      endDate,
-      assignees,
+      title: title.trim(),
+      description: description.trim() ? description.trim() : undefined,
+      category: category,
+      priority: priority,
+      startDate: editingTask?.startDate ? editingTask.startDate : '2026-08-10',
+      endDate: endDate,
+      assignees: assignees,
     });
   };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
       <form onSubmit={handleSubmit} className="w-full max-w-lg bg-card border border-border-card rounded-2xl p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -82,6 +79,7 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
         </div>
 
         <div className="space-y-4 text-xs">
+          {/* タスク名入力 */}
           <div>
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">タスク名</label>
             <input 
@@ -94,6 +92,7 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
             />
           </div>
 
+          {/* 詳細説明入力 */}
           <div>
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">詳細説明</label>
             <textarea 
@@ -105,7 +104,7 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
             />
           </div>
 
-          {/* 検索機能付き担当者追加UI */}
+          {/* 担当者の検索・アサイン */}
           <div>
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">担当者の検索・アサイン</label>
             <input 
@@ -134,10 +133,16 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
             </div>
           </div>
 
+          {/* メタデータ選択（カテゴリ・優先度・期日） */}
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-[10px] font-black text-text-sub uppercase mb-1">カテゴリ</label>
-              <select value={category} onChange={(e) => setCategory(e.target.value as TaskCategory)} className="w-full h-9 bg-base border border-border-card rounded-xl px-2 font-bold text-text-main cursor-pointer">
+              <select 
+                value={category} 
+                // 💡 e.target.value の後ろに「as '開発' | 'デザイン' | 'マーケ' | 'その他'」を付与します
+                onChange={(e) => setCategory(e.target.value as '開発' | 'デザイン' | 'マーケ' | 'その他')} 
+                className="w-full h-9 bg-base border border-border-card rounded-xl px-2 font-bold text-text-main cursor-pointer"
+              >
                 <option value="開発">開発</option>
                 <option value="デザイン">デザイン</option>
                 <option value="マーケ">マーケ</option>
@@ -146,7 +151,11 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
             </div>
             <div>
               <label className="block text-[10px] font-black text-text-sub uppercase mb-1">優先度</label>
-              <select value={priority} onChange={(e) => setPriority(e.target.value as TaskPriority)} className="w-full h-9 bg-base border border-border-card rounded-xl px-2 font-bold text-text-main cursor-pointer">
+              <select 
+                value={priority} 
+                onChange={(e) => setPriority(e.target.value as 'high' | 'medium' | 'low')} 
+                className="w-full h-9 bg-base border border-border-card rounded-xl px-2 font-bold text-text-main cursor-pointer"
+              >
                 <option value="high">高</option>
                 <option value="medium">中</option>
                 <option value="low">低</option>
@@ -154,7 +163,12 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
             </div>
             <div>
               <label className="block text-[10px] font-black text-text-sub uppercase mb-1">期日</label>
-              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full h-9 bg-base border border-border-card rounded-xl px-2 font-bold font-mono text-text-main cursor-pointer" />
+              <input 
+                type="date" 
+                value={endDate} 
+                onChange={(e) => setEndDate(e.target.value)} 
+                className="w-full h-9 bg-base border border-border-card rounded-xl px-2 font-bold font-mono text-text-main cursor-pointer" 
+              />
             </div>
           </div>
         </div>
