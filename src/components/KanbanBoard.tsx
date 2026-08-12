@@ -95,14 +95,17 @@ export default function KanbanBoard({
                 </div>
               ) : (
                 filteredTasks.map((task) => {
-                  // --- 💡 【フェーズ3】デッドライン自動検知（2026年8月10日 JST基準） ---
-                  const CURRENT_DATE_STR = '2026-08-10';
-                  const currentTimestamp = new Date(CURRENT_DATE_STR).getTime();
-                  const targetTimestamp = new Date(task.endDate).getTime();
+                  // --- 💡 【デグレ完全復元】現実の今日（リアルタイム）を基準にした元の正確な計算 ---
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0); // 今日の始まり
                   
-                  // 不要な計算のブレを無くした、元の安定した Math.ceil 切り上げ計算
-                  const diffDays = Math.ceil((targetTimestamp - currentTimestamp) / (1000 * 60 * 60 * 24));
+                  const targetDate = new Date(task.endDate);
+                  targetDate.setHours(0, 0, 0, 0); // 期日の始まり
+                  
+                  // 端数の出ない純粋なミリ秒差分から、残り日数を正確に計算
+                  const diffDays = Math.round((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
+                  // 完了(done)以外で、今日より過去なら遅延、3日以内ならパルス警告
                   const isOverdue = diffDays < 0 && task.status !== 'done';
                   const isUrgent = diffDays >= 0 && diffDays <= 3 && task.status !== 'done';
                   const isRejected = task.status === 'doing' && task.returnReason;

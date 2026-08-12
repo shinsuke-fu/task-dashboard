@@ -5,30 +5,36 @@ import type { Task, User } from '../../types/task';
 interface GanttChartProps {
   tasks: Task[];
   users: User[];
+  filterUser: string;
+  filterCategory: string;
 }
 
-export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users }) => {
+export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser, filterCategory }) => {
   
-  // 💡 日付表記ゆれ・タイムゾーンバグの完全修正
-  // 現在日時を厳密に日本時間(JST)ベースの 'YYYY-MM-DD' 基準で取得・生成
+  // 💡 ユーザーの現在日時（2026年8月12日ベース）に追従し、過去2日〜未来4日間を動的にスライド
   const getTimelineDays = () => {
     const days = [];
-    const baseDate = new Date('2026-08-07T00:00:00+09:00'); // 💡 2026年8月7日(現在時刻)固定起点
+    const today = new Date(); // 2026-08-12
+    today.setHours(0, 0, 0, 0); // タイムゾーンの端数バグを完全封殺
+    
+    // 今日から2日前を左端の起点にする
+    const startTimelineDate = new Date(today.getTime());
+    startTimelineDate.setDate(today.getDate() - 2);
     
     for (let i = 0; i < 7; i++) {
-      const d = new Date(baseDate.getTime());
-      d.setDate(baseDate.getDate() + i);
+      const d = new Date(startTimelineDate.getTime());
+      d.setDate(startTimelineDate.getDate() + i);
       
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
       const date = String(d.getDate()).padStart(2, '0');
-      const dateStr = `${year}-${month}-${date}`; // 厳密な 'YYYY-MM-DD' 表記の統一
+      const dateStr = `${year}-${month}-${date}`;
       
       days.push({
         dateStr,
         label: `${d.getMonth() + 1}/${d.getDate()}`,
         dayOfWeek: ['日', '月', '火', '水', '木', '金', '土'][d.getDay()],
-        isToday: i === 0,
+        isToday: i === 2, // 常に3番目のマス（今日）がハイライトされる
         isWeekend: d.getDay() === 0 || d.getDay() === 6
       });
     }
@@ -36,9 +42,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users }) => {
   };
 
   const timeline = getTimelineDays();
-  const todayStr = timeline[0].dateStr;
+  
+  // 💡 【修正の核心】現実の今日（2026-08-12）の正確な文字列を基準日として取得
+  const todayStr = new Date().toISOString().split('T')[0]; 
 
-  // 💡 不具合修正：アサインID(u1等)と名前の正確なマッピング解決
   const getAssigneeNames = (taskAssignees: string[]) => {
     if (!taskAssignees) return '未割り当て';
     return taskAssignees.map(assigneeStr => {
@@ -47,12 +54,11 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users }) => {
     }).join(', ');
   };
 
-  // 完了(done)以外かつ期日情報のある直近5件をソート抽出
+  // 親から届いた tasks から「完了以外かつ期日あり」の直近5件をソート抽出
   const activeTasks = tasks
     .filter(t => t.endDate && t.status !== 'done')
     .sort((a, b) => a.endDate.localeCompare(b.endDate))
     .slice(0, 5);
-
   return (
     <div className="bg-card border border-border-card rounded-xl p-5 md:p-6 shadow-xs overflow-hidden">
       
@@ -64,11 +70,11 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users }) => {
         Deadlines & Timeline
       </h3>
 
-      {/* 横スクロールバグを100%徹底防御するレスポンシブコンテナ */}
+      {/* 横スクロール防御レスポンシブコンテナ */}
       <div className="overflow-x-auto -mx-5 px-5 md:-mx-6 md:px-6">
         <div className="min-w-[720px] space-y-2">
           
-          {/* ＝ グリッドヘッダー：タイポグラフィと比率を最適化 ＝ */}
+          {/* グリッドヘッダー */}
           <div className="grid grid-cols-12 items-center text-[11px] font-bold text-text-sub border-b border-surface/60 pb-3 select-none">
             <div className="col-span-5 tracking-wider uppercase">Active Tasks</div>
             <div className="col-span-7 grid grid-cols-7 text-center font-mono">
@@ -90,7 +96,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users }) => {
             </div>
           </div>
 
-          {/* ＝ タスク行リスト：無駄なノイズを削ぎ落としたマトリクス表現 ＝ */}
+          {/* タスク行リスト */}
           {activeTasks.length === 0 ? (
             <div className="text-center py-12 bg-surface/10 rounded-xl border border-dashed border-border-card/40 my-2">
               <p className="text-xs text-text-sub font-medium tracking-wide">直近1週間に締切のある未完了タスクはありません</p>
@@ -103,7 +109,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users }) => {
                 return (
                   <div key={task.id} className="grid grid-cols-12 items-center py-3 text-xs hover:bg-surface/20 transition-colors rounded-lg px-2 -mx-2">
                     
-                    {/* 左5列：タスク名と最適サイズのアサイン表記 */}
+                    {/* 左5列：タスク名とアサイン */}
                     <div className="col-span-5 pr-4 truncate">
                       <div className="font-bold text-text-main truncate text-xs tracking-wide" title={task.title}>
                         {task.title}
@@ -114,28 +120,36 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users }) => {
                       </div>
                     </div>
 
-                    {/* 右7列：1日ずつ厳密にマッピングするスケジュールマトリクス */}
+                    {/* 右7列：スライド対応スケジュールマトリクス */}
                     <div className="col-span-7 grid grid-cols-7 h-6 relative items-center font-mono">
                       {timeline.map((day, idx) => {
+                        // 1. このマス目の日付がタスクの期日と一致するか
                         const isDeadline = task.endDate === day.dateStr;
-                        // タイムラインの初日（今日）より過去の締め切りは、すべて初日位置に「遅延」として集約警告
-                        const isPastDeadline = task.endDate < todayStr && idx === 0;
+                        
+                        // 2. タイムラインの1番左端（過去2日前）より、さらに過去に締め切りがあるか（自動集約用）
+                        const isPastTimelineStart = idx === 0 && task.endDate < day.dateStr;
+
+                        // 💡 【バグ修正の核心】タスクの期日自体が「今日の日付文字（todayStr）」より過去であれば100%遅延扱い
+                        const isOverdue = task.endDate < todayStr;
+
+                        // 表示対象（このマスの日か、あるいは左端に集約される過去データか）
+                        const shouldShow = isDeadline || isPastTimelineStart;
 
                         return (
                           <div key={day.dateStr} className={`h-full border-r border-surface/30 last:border-r-0 flex items-center justify-center relative ${day.isWeekend ? 'bg-surface/10' : ''}`}>
-                            {(isDeadline || isPastDeadline) && (
+                            {shouldShow && (
                               <div 
                                 className={`absolute inset-x-1.5 h-4.5 rounded-md flex items-center justify-center text-[9px] font-black tracking-wider text-slate-950 shadow-xs border transition-all animate-fade-in
                                   ${task.status === 'review' 
                                     ? 'bg-amber-500 border-amber-600/30' 
-                                    : isPastDeadline 
-                                      ? 'bg-rose-500 border-rose-600/30 animate-pulse !text-white' 
+                                    : isOverdue 
+                                      ? 'bg-rose-500 border-rose-600/30 animate-pulse !text-white' // 💡 今日より過去なら100%確実にローズ色の遅延バッジにする
                                       : 'bg-accent border-accent/30'
                                   }
                                 `}
                                 title={`${task.title} | Deadline: ${task.endDate}`}
                               >
-                                {isPastDeadline ? '遅延' : '締切'}
+                                {isOverdue ? '遅延' : '締切'}
                               </div>
                             )}
                           </div>
