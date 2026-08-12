@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react'; // 💡 不要になった useMemo を削り最軽量化
+import { useState, useEffect, useRef } from 'react';
 import type { Task, AppTheme, User } from './types/task';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/KanbanBoard';
 import TaskForm from './components/TaskForm';
 import { DashboardView } from './components/dashboard/DashboardView';
+import { Login } from './pages/Login';
 
 const mockUsers: User[] = [
   { id: 'u1', name: '自分（作業者）' },
@@ -27,6 +28,14 @@ const initialTasks: Task[] = [
 ];
 
 export default function App() {
+
+  const IS_DEV_MODE = true;
+
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    if (IS_DEV_MODE) return true; // ✨ 開発中はログイン画面を自動パス
+    return localStorage.getItem('dashboard_auth') === 'true';
+  });
+
   const [tasks, setTasks] = useState<Task[]>(() => {
     const saved = localStorage.getItem('dashboard_tasks');
     return saved ? JSON.parse(saved) : initialTasks;
@@ -43,13 +52,16 @@ export default function App() {
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState<boolean>(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // 【フェーズ3】グローバル操作フィルター状態
   const [filterUser, setFilterUser] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
 
   useEffect(() => {
     localStorage.setItem('dashboard_tasks', JSON.stringify(tasks));
   }, [tasks]);
+
+  useEffect(() => {
+    localStorage.setItem('dashboard_auth', String(isAuthenticated));
+  }, [isAuthenticated]);
 
   useEffect(() => {
     localStorage.setItem('dashboard_theme', theme);
@@ -68,17 +80,14 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [theme]);
 
-  // 💡 【バグ完全撲滅の核心】表示件数カウンター用の一時的な長さチェックにのみスコープを絞ります
   const currentFilteredCount = tasks.filter((task) => {
     const matchesUser = filterUser === 'all' || task.assignees.includes(filterUser);
     const matchesCategory = filterCategory === 'all' || task.category === filterCategory;
     return matchesUser && matchesCategory;
   }).length;
 
-  // 存在するカテゴリを動的に抽出
   const availableCategories = Array.from(new Set(tasks.map((t) => t.category).filter(Boolean)));
 
-  // 💡 prev を書き換えることで、大元のタスク状態の更新をReactへ最速直撃させます
   const handleSaveTask = (taskData: Omit<Task, 'id' | 'status'>) => {
     if (editingTask) {
       setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...taskData } : t));
@@ -121,6 +130,10 @@ export default function App() {
     'ocean-dark': 'OCEAN', 'amethyst-dark': 'AMETHYST', 'graphite-dark': 'GRAPHITE',
     'lime-dark': 'LIME', 'light': 'LIGHT', 'coffee-dark': 'COFFEE',
   };
+
+  if (!isAuthenticated) {
+    return <Login onLoginSuccess={() => setIsAuthenticated(true)} />;
+  }
   return (
     <div className="flex h-screen w-screen bg-base text-text-main font-sans transition-colors duration-300 overflow-hidden relative">
       
@@ -131,9 +144,9 @@ export default function App() {
         <Sidebar 
           currentView={currentView} 
           onViewChange={setCurrentView} 
-          theme={theme} 
           isOpen={isSidebarOpen}
           onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+          onLogout={() => setIsAuthenticated(false)} 
         />
       </div>
 
@@ -265,12 +278,10 @@ export default function App() {
           <div className="max-w-7xl mx-auto w-full h-full">
             {currentView === 'dashboard' ? (
               <div className="animate-fade-in pb-8">
-                {/* 💡 大元の tasks とフィルター条件をセットで渡し、内部で処理させることでデグレを完全に封じ込めます */}
                 <DashboardView tasks={tasks} users={mockUsers} filterUser={filterUser} filterCategory={filterCategory} />
               </div>
             ) : currentView === 'tasks' ? (
               <div className="space-y-6 animate-fade-in pb-8">
-                {/* 💡 カンバンボードも同様に、大元の tasks とフィルター用の状態を直通させます */}
                 <KanbanBoard 
                   tasks={tasks} 
                   filterUser={filterUser}
