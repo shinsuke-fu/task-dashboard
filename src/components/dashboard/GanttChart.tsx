@@ -1,4 +1,3 @@
-// src/components/dashboard/GanttChart.tsx
 import React from 'react';
 import type { Task, User } from '../../types/task';
 
@@ -11,7 +10,7 @@ interface GanttChartProps {
 
 export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser, filterCategory }) => {
   
-  // 💡 ユーザーの現在日時（2026年8月12日ベース）に追従し、過去2日〜未来4日間を動的にスライド
+  //  ユーザーの現在日時（2026年8月12日ベース）に追従し、過去2日〜未来4日間を動的にスライド
   const getTimelineDays = () => {
     const days = [];
     const today = new Date(); // 2026-08-12
@@ -43,7 +42,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser
 
   const timeline = getTimelineDays();
   
-  // 💡 【修正の核心】現実の今日（2026-08-12）の正確な文字列を基準日として取得
+  //  【修正の核心】現実の今日（2026-08-12）の正確な文字列を基準日として取得
   const todayStr = new Date().toISOString().split('T')[0]; 
 
   const getAssigneeNames = (taskAssignees: string[]) => {
@@ -59,6 +58,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser
     .filter(t => t.endDate && t.status !== 'done')
     .sort((a, b) => a.endDate.localeCompare(b.endDate))
     .slice(0, 5);
+
   return (
     <div className="bg-card border border-border-card rounded-xl p-5 md:p-6 shadow-xs overflow-hidden">
       
@@ -70,8 +70,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser
         Deadlines & Timeline
       </h3>
 
-      {/* 横スクロール防御レスポンシブコンテナ */}
-      <div className="overflow-x-auto -mx-5 px-5 md:-mx-6 md:px-6">
+      {/* 横スクロールバー常時出現バグを完全駆逐したレスポンシブコンテナ */}
+      <div className="overflow-x-auto md:overflow-x-auto -mx-5 px-5 md:-mx-6 md:px-6">
         <div className="min-w-[720px] space-y-2">
           
           {/* グリッドヘッダー */}
@@ -102,7 +102,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser
               <p className="text-xs text-text-sub font-medium tracking-wide">直近1週間に締切のある未完了タスクはありません</p>
             </div>
           ) : (
-            <div className="divide-y divide-surface/40 max-h-[260px] overflow-y-auto pr-1">
+            <div className="divide-y divide-surface/40 max-h-[260px] overflow-y-auto overflow-x-hidden pr-1 scrollbar-none">
               {activeTasks.map(task => {
                 const assigneeText = getAssigneeNames(task.assignees);
 
@@ -123,16 +123,9 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser
                     {/* 右7列：スライド対応スケジュールマトリクス */}
                     <div className="col-span-7 grid grid-cols-7 h-6 relative items-center font-mono">
                       {timeline.map((day, idx) => {
-                        // 1. このマス目の日付がタスクの期日と一致するか
                         const isDeadline = task.endDate === day.dateStr;
-                        
-                        // 2. タイムラインの1番左端（過去2日前）より、さらに過去に締め切りがあるか（自動集約用）
                         const isPastTimelineStart = idx === 0 && task.endDate < day.dateStr;
-
-                        // 💡 【バグ修正の核心】タスクの期日自体が「今日の日付文字（todayStr）」より過去であれば100%遅延扱い
                         const isOverdue = task.endDate < todayStr;
-
-                        // 表示対象（このマスの日か、あるいは左端に集約される過去データか）
                         const shouldShow = isDeadline || isPastTimelineStart;
 
                         return (
@@ -140,11 +133,11 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser
                             {shouldShow && (
                               <div 
                                 className={`absolute inset-x-1.5 h-4.5 rounded-md flex items-center justify-center text-[9px] font-black tracking-wider text-slate-950 shadow-xs border transition-all animate-fade-in
-                                  ${task.status === 'review' 
-                                    ? 'bg-amber-500 border-amber-600/30' 
-                                    : isOverdue 
-                                      ? 'bg-rose-500 border-rose-600/30 animate-pulse !text-white' // 💡 今日より過去なら100%確実にローズ色の遅延バッジにする
-                                      : 'bg-accent border-accent/30'
+                                  ${isOverdue 
+                                    ? 'bg-rose-500 border-rose-600/30 animate-pulse !text-white' 
+                                    : task.status === 'review' 
+                                      ? 'bg-amber-500 border-amber-600/30' 
+                                      : 'bg-accent border-accent/30' 
                                   }
                                 `}
                                 title={`${task.title} | Deadline: ${task.endDate}`}

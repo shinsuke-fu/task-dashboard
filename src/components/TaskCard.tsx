@@ -14,7 +14,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onProcessAction,
   onDeleteTask,
 }) => {
-  // --- 💡 【デグレ完全復元】現実の今日（リアルタイム）を基準にした元の正確な計算 ---
+  // --- 【バグ完全撲滅】完了(done)以外は、承認待ち(review)であっても期日超過なら一律で遅延判定に変えます ---
   const today = new Date();
   today.setHours(0, 0, 0, 0); // 今日の始まり
   
@@ -24,22 +24,25 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   // 端数の出ない純粋なミリ秒差分から、残り日数を正確に計算
   const diffDays = Math.round((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
-  // 完了(done)以外で、今日より過去なら遅延、3日以内ならパルス警告
+  // 修正：status !== 'done' の条件を最優先に据え、review状態のタスクも期日を過ぎていれば確実に遅延にします
   const isOverdue = diffDays < 0 && task.status !== 'done';
   const isUrgent = diffDays >= 0 && diffDays <= 3 && task.status !== 'done';
+  
+  // 差し戻しは「進行中(doing)かつ理由があるとき」のみ（遅延していない場合のみ適用、または遅延を最優先にするため、以下でスタイル順序を制御）
   const isRejected = task.status === 'doing' && task.returnReason;
 
-  // --- 🎨 条件に応じたマットダーク用境界線＆影スタイル ---
+  // ---  条件に応じたマットダーク用境界線＆影スタイル ---
   let borderStyleClass = 'border-border-card hover:border-accent/40';
   let pulseAnimationClass = '';
 
-  if (isRejected) {
-    borderStyleClass = 'border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.05)]';
-  } else if (isOverdue) {
-    borderStyleClass = 'border-rose-600/80 shadow-[0_0_12px_rgba(225,29,72,0.1)]';
+  //  遅延（isOverdue）を一番上に持ってくることで、承認待ちや差し戻し状態よりも「遅延赤枠」を最優先で適用させます
+  if (isOverdue) {
+    borderStyleClass = 'border-rose-600/80 shadow-[0_0_12px_rgba(225,29,72,0.1)] bg-rose-950/5'; // ほんのり赤背景を混ぜて危険度を統一
   } else if (isUrgent) {
     borderStyleClass = 'border-amber-500/80 shadow-[0_0_14px_rgba(245,158,11,0.25)]';
     pulseAnimationClass = 'animate-pulse';
+  } else if (isRejected) {
+    borderStyleClass = 'border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.05)]';
   }
 
   const handleDragStart = (e: React.DragEvent) => {
@@ -61,7 +64,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </span>
         
         <div className="flex items-center gap-1.5">
-          {/* 🌟 絵文字を完全撤去した極細カスタムラインSVGアラート */}
+          {/* 絵文字を完全撤去した極細カスタムラインSVGアラート */}
           {isUrgent && (
             <span className="flex items-center gap-1 text-amber-400 text-[9px] font-extrabold tracking-wider bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
               <svg className={`w-2.5 h-2.5 stroke-[2.5] ${pulseAnimationClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
