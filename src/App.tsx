@@ -5,6 +5,7 @@ import KanbanBoard from './components/KanbanBoard';
 import TaskForm from './components/TaskForm';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { Login } from './pages/Login';
+import { RejectReasonModal } from './components/RejectReasonModal';
 
 const mockUsers: User[] = [
   { id: 'u1', name: '自分（作業者）' },
@@ -54,6 +55,9 @@ export default function App() {
 
   const [filterUser, setFilterUser] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
+
+  // 差し戻し対象のタスクIDを保持するステートを新設
+  const [rejectTargetId, setRejectTargetId] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem('dashboard_tasks', JSON.stringify(tasks));
@@ -115,7 +119,9 @@ export default function App() {
       if (task.id !== id) return task;
       if (action === 'apply') return { ...task, status: 'review', returnReason: undefined };
       if (action === 'approve') return { ...task, status: 'done', returnReason: undefined };
-      if (action === 'reject') return { ...task, status: 'doing', returnReason: reason || '要修正項目があります。' };
+      if (action === 'reject') {
+        return { ...task, status: 'doing', returnReason: reason || '要修正項目があります。' };
+      }
       return task;
     }));
   };
@@ -123,6 +129,16 @@ export default function App() {
   const handleStartEdit = (task: Task) => {
     setEditingTask(task);
     setIsModalOpen(true);
+  };
+
+  const handleOpenRejectModal = (id: string) => setRejectTargetId(id);
+  const handleCloseRejectModal = () => setRejectTargetId(null);
+
+  const handleConfirmReject = (reason: string) => {
+    if (rejectTargetId) {
+      handleProcessAction(rejectTargetId, 'reject', reason);
+      handleCloseRejectModal();
+    }
   };
 
   const themeLabels: Record<AppTheme, string> = {
@@ -288,6 +304,7 @@ export default function App() {
                   filterCategory={filterCategory}
                   onUpdateStatus={handleUpdateStatus} 
                   onProcessAction={handleProcessAction} 
+                  onTriggerReject={handleOpenRejectModal}
                   onDeleteTask={handleDeleteTask} 
                   onStartEdit={handleStartEdit} 
                 />
@@ -307,6 +324,12 @@ export default function App() {
         onClose={() => { setIsModalOpen(false); setEditingTask(undefined); }} 
         onAddTask={handleSaveTask} 
         users={mockUsers} 
+      />
+      {/* ✨ 【追加場所】一番底に新設モーダルをマウント */}
+      <RejectReasonModal
+        isOpen={rejectTargetId !== null}
+        onClose={handleCloseRejectModal}
+        onSubmit={handleConfirmReject}
       />
     </div>
   );

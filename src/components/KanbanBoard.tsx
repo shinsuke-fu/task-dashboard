@@ -8,6 +8,7 @@ interface KanbanBoardProps {
   filterCategory: string;
   onUpdateStatus: (id: string, newStatus: TaskStatus) => void;
   onProcessAction: (id: string, action: 'apply' | 'approve' | 'reject', reason?: string) => void;
+  onTriggerReject: (id: string) => void;
   onDeleteTask: (id: string) => void;
   onStartEdit: (task: Task) => void;
 }
@@ -18,6 +19,7 @@ export default function KanbanBoard({
   filterCategory, 
   onUpdateStatus, 
   onProcessAction, 
+  onTriggerReject,
   onDeleteTask, 
   onStartEdit 
 }: KanbanBoardProps) {
@@ -52,8 +54,15 @@ export default function KanbanBoard({
     e.preventDefault();
     setActiveColumn(null);
     const taskId = e.dataTransfer.getData('text/plain');
-    if (taskId) {
-      onUpdateStatus(taskId, targetStatus);
+    if (!taskId) return;
+
+    // 💥 【書き換え場所】ここから下を、reviewからのドロップ検知ロジックに置き換え
+    const draggedTask = tasks.find(t => t.id === taskId);
+    
+    if (draggedTask && draggedTask.status === 'review' && targetStatus === 'doing') {
+      onTriggerReject(taskId); // 差し戻しモーダルを起動
+    } else {
+      onUpdateStatus(taskId, targetStatus); // 通常の移動
     }
   };
 
@@ -95,6 +104,7 @@ export default function KanbanBoard({
                     task={task}
                     onStartEdit={onStartEdit}
                     onProcessAction={onProcessAction}
+                    onTriggerReject={onTriggerReject}
                     onDeleteTask={onDeleteTask}
                   />
                 ))

@@ -15,8 +15,12 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
   const [category, setCategory] = useState<'開発' | 'デザイン' | 'マーケ' | 'その他'>('開発');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [endDate, setEndDate] = useState('');
-  const [assignees, setAssignees] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  
+  // 💡 自分（ログインユーザー）のIDを常に自動セットし、変更不可にします
+  const currentUserId = 'u1'; 
+  
+  // 💡 【仕様アップグレード】確認者（レビュアー）を管理するステートを新設（デフォルトは山田: u2）
+  const [reviewerId, setReviewerId] = useState<string>('u2');
 
   // 💡 バグ修正：isOpen が「true になった瞬間」だけ確実に初期化し、編集中の中途半端な上書きループを徹底遮断
   useEffect(() => {
@@ -28,35 +32,29 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
       setCategory(editingTask.category || '開発');
       setPriority(editingTask.priority || 'medium');
       setEndDate(editingTask.endDate);
-      setAssignees(editingTask.assignees || []);
+      
+      // 既存タスクに確認者が設定されていればそれをセット
+      setReviewerId(editingTask.reviewerId || 'u2');
     } else {
       setTitle('');
       setDescription('');
       setCategory('開発');
       setPriority('medium');
       setEndDate('2026-08-10'); // 2026年8月JST基準のデフォルト
-      setAssignees(['u1']);
+      setReviewerId('u2'); // デフォルト確認者
     }
-    setSearchQuery('');
   }, [isOpen]); // 💡 依存配列を isOpen のみに絞ることで、送信時の逆流リセットバグを完全消滅させます
 
   if (!isOpen) return null;
 
-  const filteredUsers = users.filter(user => 
-    user.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const handleToggleAssignee = (userId: string) => {
-    setAssignees(prev => 
-      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
-    );
-  };
+  // 💡 自分以外の確認者（レビュアー）候補メンバーを抽出（自分をアサインから除外するため）
+  const reviewerCandidates = users.filter(user => user.id !== currentUserId);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
-    // 💡 親の型定義(string等)に安全に適合させ、最新のendDate値を確実に最優先で送信
+    // 💡 親の型定義(string等)に安全に適合させ、最新の値を確実に最優先で送信
     onAddTask({
       title: title.trim(),
       description: description.trim() ? description.trim() : undefined,
@@ -64,9 +62,11 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
       priority: priority,
       startDate: editingTask?.startDate ? editingTask.startDate : '2026-08-10',
       endDate: endDate,
-      assignees: assignees,
+      assignees: [currentUserId], // 💥 担当者は常に自分「u1」を自動で100%固定代入
+      reviewerId: reviewerId,     // 💥 選択した確認者（レビュアー）のIDを直通バインド
     });
   };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
       <form onSubmit={handleSubmit} className="w-full max-w-lg bg-card border border-border-card rounded-2xl p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -74,7 +74,7 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
         {/* ヘッダー */}
         <div className="flex items-center justify-between pb-2 border-b border-border-card/40">
           <h3 className="font-extrabold text-xs tracking-wider text-text-main">
-            {editingTask ? '📝 タスクの編集' : '✨ 新しいタスクの追加'}
+            {editingTask ? 'タスクの編集' : '新しいタスクの追加'}
           </h3>
         </div>
 
@@ -104,33 +104,25 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
             />
           </div>
 
-          {/* 担当者の検索・アサイン */}
+          {/* 💥 旧「担当者アサイン」欄から、スマートで機能的な「確認者（レビュアー）指定」欄へ刷新 */}
           <div>
-            <label className="block text-[10px] font-black text-text-sub uppercase mb-1">担当者の検索・アサイン</label>
-            <input 
-              type="text" 
-              placeholder="名前でメンバーを検索..." 
-              value={searchQuery} 
-              onChange={(e) => setSearchQuery(e.target.value)} 
-              className="w-full h-8 bg-base border border-border-card rounded-lg px-3 mb-2 text-text-main focus:outline-none focus:border-accent text-[11px]" 
-            />
-            <div className="flex flex-wrap gap-1.5 p-2 bg-base rounded-xl border border-border-card max-h-24 overflow-y-auto">
-              {filteredUsers.map(user => {
-                const isChecked = assignees.includes(user.id);
-                return (
-                  <button 
-                    type="button" 
-                    key={user.id} 
-                    onClick={() => handleToggleAssignee(user.id)} 
-                    className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold cursor-pointer transition select-none ${
-                      isChecked ? 'border-accent bg-accent/10 text-accent' : 'border-border-card text-text-sub hover:bg-card'
-                    }`}
-                  >
-                    {user.name} {isChecked ? '✓' : '+'}
-                  </button>
-                );
-              })}
-            </div>
+            <label className="block text-[10px] font-black text-text-sub uppercase mb-1">
+              タスクの確認者・承認者（上司・レビュアー）
+            </label>
+            <select
+              value={reviewerId}
+              onChange={(e) => setReviewerId(e.target.value)}
+              className="w-full h-9 bg-base border border-border-card rounded-xl px-2 font-bold text-text-main cursor-pointer"
+            >
+              {reviewerCandidates.map(user => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-text-sub mt-1.5 pl-1 font-medium">
+              ※ご自身の個人用ワークスペースのため、タスクの作業担当者は自動的に <span className="text-accent font-bold">あなた（自分）</span> に固定されます。
+            </p>
           </div>
 
           {/* メタデータ選択（カテゴリ・優先度・期日） */}
@@ -139,7 +131,6 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
               <label className="block text-[10px] font-black text-text-sub uppercase mb-1">カテゴリ</label>
               <select 
                 value={category} 
-                // 💡 e.target.value の後ろに「as '開発' | 'デザイン' | 'マーケ' | 'その他'」を付与します
                 onChange={(e) => setCategory(e.target.value as '開発' | 'デザイン' | 'マーケ' | 'その他')} 
                 className="w-full h-9 bg-base border border-border-card rounded-xl px-2 font-bold text-text-main cursor-pointer"
               >

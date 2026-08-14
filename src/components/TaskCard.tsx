@@ -5,6 +5,7 @@ interface TaskCardProps {
   task: Task;
   onStartEdit: (task: Task) => void;
   onProcessAction: (id: string, action: 'apply' | 'approve' | 'reject', reason?: string) => void;
+  onTriggerReject: (id: string) => void;
   onDeleteTask: (id: string) => void;
 }
 
@@ -12,6 +13,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   task,
   onStartEdit,
   onProcessAction,
+  onTriggerReject,
   onDeleteTask,
 }) => {
   // --- 【バグ完全撲滅】完了(done)以外は、承認待ち(review)であっても期日超過なら一律で遅延判定に変えます ---
@@ -124,9 +126,13 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           )}
           {task.status === 'review' && (
             <>
-              <button onClick={() => onProcessAction(task.id, 'reject', '内容をもう少し具体的に書いてください。')} className="px-2 py-0.5 bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white font-bold rounded text-[9px] cursor-pointer transition">
+              <button 
+                onClick={() => onTriggerReject(task.id)} 
+                className="px-2 py-0.5 bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white font-bold rounded text-[9px] cursor-pointer transition"
+              >
                 差し戻し
               </button>
+              
               <button onClick={() => onProcessAction(task.id, 'approve')} className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-slate-950 font-bold rounded text-[9px] cursor-pointer transition">
                 承認完了
               </button>
