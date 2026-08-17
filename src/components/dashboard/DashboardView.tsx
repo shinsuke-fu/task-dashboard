@@ -50,7 +50,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <ProgressChart tasks={displayTasks} users={users} />
 
       {/* ＝ TIMELINE MATRIX ＝ */}
-      <GanttChart tasks={displayTasks} users={users} />
+      <GanttChart tasks={displayTasks} users={users} filterUser={filterUser} filterCategory={filterCategory} />
       
     </div>
   );
