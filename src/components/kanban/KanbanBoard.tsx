@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import type { Task, TaskStatus } from '../types/task';
+import type { Task, TaskStatus } from '../../types/task';
 import { TaskCard } from './TaskCard'; // 💡 新設したカードを統合
 
 interface KanbanBoardProps {

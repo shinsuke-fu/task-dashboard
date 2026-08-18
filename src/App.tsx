@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Task, AppTheme, User } from './types/task';
 import Sidebar from './components/Sidebar';
-import KanbanBoard from './components/KanbanBoard';
+import KanbanBoard from './components/kanban/KanbanBoard';
 import TaskForm from './components/TaskForm';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { Login } from './pages/Login';
