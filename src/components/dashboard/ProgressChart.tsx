@@ -1,6 +1,18 @@
-// src/components/dashboard/ProgressChart.tsx
+/**
+ * src/components/dashboard/ProgressChart.tsx
+ * -----------------------------------------------------------------------
+ * 【役割】
+ *   ダッシュボード中段の2枚組グラフ。左側はステータス別の積層バー、
+ *   右側はメンバーごとのタスク負荷（担当件数）を表示する。
+ *
+ * 【主な処理】
+ *   1. ステータス（todo/doing/review/done）別の件数・比率を集計
+ *   2. 担当者ごとの件数を集計（担当者名の解決は共通ユーティリティを利用）
+ * -----------------------------------------------------------------------
+ */
 import React from 'react';
 import type { Task, User } from '../../types/task';
+import { resolveAssigneeName } from '../../utils/assignee';
 
 interface ProgressChartProps {
   tasks: Task[];
@@ -30,9 +42,7 @@ export const ProgressChart: React.FC<ProgressChartProps> = ({ tasks, users }) =>
     if (!task.assignees) return;
     task.assignees.forEach(assigneeStr => {
       // 割り当て文字列がID（例: u1）か名前（例: 山田）かを判定し、常に「表示用の名前」へ統合する
-      const foundUser = users.find(u => u.id === assigneeStr || u.name === assigneeStr);
-      const displayName = foundUser ? foundUser.name : assigneeStr;
-      
+      const displayName = resolveAssigneeName(assigneeStr, users);
       assigneeMap[displayName] = (assigneeMap[displayName] || 0) + 1;
     });
   });

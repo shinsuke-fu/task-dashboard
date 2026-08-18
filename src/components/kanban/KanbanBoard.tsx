@@ -1,6 +1,21 @@
+/**
+ * src/components/kanban/KanbanBoard.tsx
+ * -----------------------------------------------------------------------
+ * 【役割】
+ *   「タスク一覧」ビュー本体。todo/doing/review/done の4カラムに
+ *   タスクをドラッグ＆ドロップで移動できるカンバンボード。
+ *
+ * 【主な処理】
+ *   1. tasksを共通フィルター（filterTasksByUserAndCategory）で絞り込み、
+ *      さらにcolumn.id（ステータス）ごとに振り分けて表示
+ *   2. ドラッグ＆ドロップでのステータス変更を処理。
+ *      review → doing への移動だけは特別扱いし、差し戻し理由モーダルを起動する
+ * -----------------------------------------------------------------------
+ */
 import { useState, useMemo } from 'react';
 import type { Task, TaskStatus } from '../../types/task';
 import { TaskCard } from './TaskCard';
+import { filterTasksByUserAndCategory } from '../../utils/assignee';
 
 interface KanbanBoardProps {
   tasks: Task[];
@@ -32,24 +47,13 @@ export default function KanbanBoard({
     { id: 'done', title: '完了', dotBg: 'bg-emerald-500' },
   ];
 
-  // 既存の完全リアルタイムフィルタリングロジック
-  const displayTasks = useMemo(() => {
-    return tasks.filter((task) => {
-      if (!task.assignees) return filterUser === 'all';
-      
-      const matchesUser = filterUser === 'all' || task.assignees.some(a => {
-        if (a === filterUser) return true;
-        if (filterUser === 'u1' && a === '自分（作業者）') return true;
-        if (filterUser === 'u2' && a === '山田（開発）') return true;
-        if (filterUser === 'u3' && a === '佐藤（上司・レビュアー）') return true;
-        return false;
-      });
+  // 既存の完全リアルタイムフィルタリングロジック（共通ユーティリティに一本化）
+  const displayTasks = useMemo(
+    () => filterTasksByUserAndCategory(tasks, filterUser, filterCategory),
+    [tasks, filterUser, filterCategory]
+  );
 
-      const matchesCategory = filterCategory === 'all' || task.category === filterCategory;
-      return matchesUser && matchesCategory;
-    });
-  }, [tasks, filterUser, filterCategory]);
-
+  // ドロップ時のハンドラー：review→doingの移動だけ差し戻しモーダル経由にし、それ以外は即時ステータス変更
   const handleDrop = (e: React.DragEvent, targetStatus: TaskStatus) => {
     e.preventDefault();
     setActiveColumn(null);

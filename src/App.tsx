@@ -1,3 +1,23 @@
+/**
+ * src/App.tsx
+ * -----------------------------------------------------------------------
+ * 【役割】
+ *   アプリ全体を束ねるルートコンポーネント。tasks・認証状態・テーマ・
+ *   フィルター条件など「すべての状態」をここで一元管理する
+ *   Single Source of Truth（規約①）。子・孫コンポーネントは状態を
+ *   直接書き換えず、Props経由で渡された関数（onUpdateStatus 等）を
+ *   呼び出すことでのみ状態変更をリクエストする。
+ *
+ * 【主な処理】
+ *   1. tasks / 認証状態 / テーマ を state で保持し、localStorage と同期
+ *   2. currentView（文字列）の切り替えだけで画面を出し分ける
+ *      「一面集約型SPA」のルーティングを実現（外部ルーターは未使用・規約②）
+ *   3. タスクの作成・編集・削除・ステータス変更・承認/差し戻しなど、
+ *      タスク操作系ハンドラーをすべてここに集約し、子コンポーネントへ配布
+ *   4. グローバルヘッダー／担当者・カテゴリのフィルターバー／サイドバー
+ *      など、画面全体のレイアウトを組み立てる
+ * -----------------------------------------------------------------------
+ */
 import { useState, useEffect, useRef } from 'react';
 import type { Task, AppTheme, User } from './types/task';
 import Sidebar from './components/Sidebar';
@@ -7,12 +27,15 @@ import { DashboardView } from './components/dashboard/DashboardView';
 import { Login } from './pages/Login';
 import { RejectReasonModal } from './components/RejectReasonModal';
 
+// 仮の担当者マスタ（モックデータ）。
+// TODO: ログイン／ユーザー登録機能の実装後は、登録済みユーザー一覧に置き換える想定。
 const mockUsers: User[] = [
   { id: 'u1', name: '自分（作業者）' },
   { id: 'u2', name: '山田（開発）' },
   { id: 'u3', name: '佐藤（上司・レビュアー）' },
 ];
 
+// 初回起動時（localStorageに保存済みデータが無いとき）に表示する初期タスク
 const initialTasks: Task[] = [
   {
     id: '1',
@@ -30,22 +53,30 @@ const initialTasks: Task[] = [
 
 export default function App() {
 
+  // true の間はログイン画面をスキップして開発を進められる開発用フラグ。
+  // 本番リリース前に false へ戻すこと。
   const IS_DEV_MODE = true;
 
+  // ---- 状態管理（App.tsx が保持する Single Source of Truth） ----
+
+  // ログイン認証状態。IS_DEV_MODE中は常にtrue、それ以外はlocalStorageの保存値を復元
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    if (IS_DEV_MODE) return true; // ✨ 開発中はログイン画面を自動パス
+    if (IS_DEV_MODE) return true; // 開発中はログイン画面を自動パス
     return localStorage.getItem('dashboard_auth') === 'true';
   });
 
+  // タスク一覧本体。localStorageに保存済みならそれを復元し、無ければ初期タスクを使用
   const [tasks, setTasks] = useState<Task[]>(() => {
     const saved = localStorage.getItem('dashboard_tasks');
     return saved ? JSON.parse(saved) : initialTasks;
   });
 
+  // 配色テーマ（9種類）。localStorageの保存値を復元、初回は sage-dark
   const [theme, setTheme] = useState<AppTheme>(() => {
     return (localStorage.getItem('dashboard_theme') as AppTheme) || 'sage-dark';
   });
 
+  // 現在表示中のビュー（'dashboard' | 'tasks' | その他）。文字列切替による一面集約型ルーティング
   const [currentView, setCurrentView] = useState<string>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -53,24 +84,32 @@ export default function App() {
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState<boolean>(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // グローバル操作フィルターバー（担当者・カテゴリ）の選択状態
   const [filterUser, setFilterUser] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
 
-  // 差し戻し対象のタスクIDを保持するステートを新設
+  // 差し戻し対象のタスクID（差し戻しモーダルの表示・非表示もこのstateで制御）
   const [rejectTargetId, setRejectTargetId] = useState<string | null>(null);
 
+  // ---- 副作用（状態変化に応じた同期処理） ----
+
+  // tasksが変わるたびにlocalStorageへ永続化
   useEffect(() => {
     localStorage.setItem('dashboard_tasks', JSON.stringify(tasks));
   }, [tasks]);
 
+  // 認証状態が変わるたびにlocalStorageへ永続化
   useEffect(() => {
     localStorage.setItem('dashboard_auth', String(isAuthenticated));
   }, [isAuthenticated]);
 
+  // テーマ変更時：localStorageへ保存＋<html>にdata-theme属性を反映（CSS変数切替）。
+  // 併せて、スマホ幅では自動的にサイドバーを閉じ、テーマメニュー外クリックでメニューを閉じる
+  // イベントリスナーを登録する（アンマウント時に解除）
   useEffect(() => {
     localStorage.setItem('dashboard_theme', theme);
     document.documentElement.setAttribute('data-theme', theme);
-    
+
     if (window.innerWidth < 768) {
       setIsSidebarOpen(false);
     }
@@ -84,14 +123,21 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [theme]);
 
+  // ---- 派生データ（stateから都度計算する値） ----
+
+  // フィルターバー右側に表示する「抽出件数」。担当者・カテゴリ条件に一致するタスク数
   const currentFilteredCount = tasks.filter((task) => {
     const matchesUser = filterUser === 'all' || task.assignees.includes(filterUser);
     const matchesCategory = filterCategory === 'all' || task.category === filterCategory;
     return matchesUser && matchesCategory;
   }).length;
 
+  // カテゴリ絞り込みドロップダウンの選択肢。実際に使われているカテゴリ値から動的生成
   const availableCategories = Array.from(new Set(tasks.map((t) => t.category).filter(Boolean)));
 
+  // ---- タスク操作ハンドラー（子コンポーネントへPropsとして配布） ----
+
+  // タスクの新規作成／編集保存。編集中タスクがあれば上書きマージ、無ければ新規追加（先頭に挿入）
   const handleSaveTask = (taskData: Omit<Task, 'id' | 'status'>) => {
     if (editingTask) {
       setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...taskData } : t));
@@ -103,10 +149,13 @@ export default function App() {
     setEditingTask(undefined);
   };
 
+  // タスクの削除
   const handleDeleteTask = (id: string) => {
     setTasks(prev => prev.filter(task => task.id !== id));
   };
 
+  // カンバンのドラッグ＆ドロップ等によるステータス変更。
+  // doing以外へ移動した場合は差し戻し理由(returnReason)をクリアする
   const handleUpdateStatus = (id: string, newStatus: Task['status']) => {
     setTasks(prev => prev.map(task => {
       if (task.id !== id) return task;
@@ -114,6 +163,7 @@ export default function App() {
     }));
   };
 
+  // 承認申請／承認完了／差し戻しの3アクションをまとめて処理する
   const handleProcessAction = (id: string, action: 'apply' | 'approve' | 'reject', reason?: string) => {
     setTasks(prev => prev.map(task => {
       if (task.id !== id) return task;
@@ -126,14 +176,17 @@ export default function App() {
     }));
   };
 
+  // タスクカードクリック等によるタスク編集モーダルの起動
   const handleStartEdit = (task: Task) => {
     setEditingTask(task);
     setIsModalOpen(true);
   };
 
+  // 差し戻し理由モーダルの開閉
   const handleOpenRejectModal = (id: string) => setRejectTargetId(id);
   const handleCloseRejectModal = () => setRejectTargetId(null);
 
+  // 差し戻し理由モーダルで入力された理由を確定し、対象タスクをdoingへ差し戻す
   const handleConfirmReject = (reason: string) => {
     if (rejectTargetId) {
       handleProcessAction(rejectTargetId, 'reject', reason);
@@ -141,15 +194,19 @@ export default function App() {
     }
   };
 
+  // ヘッダーのテーマ切替メニューに表示するラベル一覧（AppTheme各値 → 表示名）
   const themeLabels: Record<AppTheme, string> = {
     'sage-dark': 'SAGE', 'terracotta-dark': 'TERRACOTTA', 'bronze-dark': 'BRONZE',
     'ocean-dark': 'OCEAN', 'amethyst-dark': 'AMETHYST', 'graphite-dark': 'GRAPHITE',
     'lime-dark': 'LIME', 'light': 'LIGHT', 'coffee-dark': 'COFFEE',
   };
 
+  // 未ログイン時はログイン画面のみを表示し、以降のダッシュボードUIは描画しない
   if (!isAuthenticated) {
     return <Login onLoginSuccess={() => setIsAuthenticated(true)} />;
   }
+
+  // ---- ログイン後のメイン画面（サイドバー＋ヘッダー＋フィルターバー＋メインビュー） ----
   return (
     <div className="flex h-screen w-screen bg-base text-text-main font-sans transition-colors duration-300 overflow-hidden relative">
       

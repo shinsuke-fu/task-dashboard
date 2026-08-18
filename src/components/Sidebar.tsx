@@ -1,4 +1,17 @@
-import type { AppTheme } from '../types/task';
+/**
+ * src/components/Sidebar.tsx
+ * -----------------------------------------------------------------------
+ * 【役割】
+ *   画面左側のナビゲーションメニュー（開閉可能）。ロゴ／メニュー項目／
+ *   ログアウトボタンを表示するだけの見た目主体のコンポーネントで、
+ *   状態は一切保持しない（表示中ビュー・開閉状態はApp.tsxからProps経由）。
+ *
+ * 【主な処理】
+ *   1. menuItems配列を定義し、選択中(currentView)に応じてハイライト表示
+ *   2. isOpen（開閉状態）に応じて、幅・ラベル表示・アイコンレイアウトを切替
+ *   3. ログアウトボタン押下でonLogoutを呼び出す（実処理はApp.tsx側）
+ * -----------------------------------------------------------------------
+ */
 
 interface SidebarProps {
   currentView: string;
@@ -15,6 +28,7 @@ export default function Sidebar({
   onToggle,
   onLogout
 }: SidebarProps) {
+  // ナビゲーション項目の定義（id は App.tsx の currentView と対応）
   const menuItems = [
     {
       id: 'dashboard',

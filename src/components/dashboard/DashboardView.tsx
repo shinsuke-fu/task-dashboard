@@ -1,9 +1,21 @@
-// src/components/dashboard/DashboardView.tsx
+/**
+ * src/components/dashboard/DashboardView.tsx
+ * -----------------------------------------------------------------------
+ * 【役割】
+ *   「ダッシュボード」ビューの入れ物。KpiCards / ProgressChart /
+ *   GanttChart を縦に並べて表示するだけのコンテナコンポーネント。
+ *
+ * 【主な処理】
+ *   1. App.tsxから受け取ったtasksを、共通フィルター（filterTasksByUserAndCategory）
+ *      で担当者・カテゴリ絞り込みし、displayTasksとして各子コンポーネントへ配布
+ * -----------------------------------------------------------------------
+ */
 import React, { useMemo } from 'react';
 import { KpiCards } from './KpiCards';
 import { ProgressChart } from './ProgressChart';
 import { GanttChart } from './GanttChart';
 import type { Task, User } from '../../types/task';
+import { filterTasksByUserAndCategory } from '../../utils/assignee';
 
 interface DashboardViewProps {
   tasks: Task[];
@@ -19,23 +31,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   filterCategory 
 }) => {
 
-  // 親の共通バーと100%リアルタイム連動するフィルタリング
-  const displayTasks = useMemo(() => {
-    return tasks.filter((task) => {
-      if (!task.assignees) return filterUser === 'all';
-      
-      const matchesUser = filterUser === 'all' || task.assignees.some(a => {
-        if (a === filterUser) return true;
-        if (filterUser === 'u1' && a === '自分（作業者）') return true;
-        if (filterUser === 'u2' && a === '山田（開発）') return true;
-        if (filterUser === 'u3' && a === '佐藤（上司・レビュアー）') return true;
-        return false;
-      });
-
-      const matchesCategory = filterCategory === 'all' || task.category === filterCategory;
-      return matchesUser && matchesCategory;
-    });
-  }, [tasks, filterUser, filterCategory]);
+  // 親の共通バーと100%リアルタイム連動するフィルタリング（共通ユーティリティに一本化）
+  const displayTasks = useMemo(
+    () => filterTasksByUserAndCategory(tasks, filterUser, filterCategory),
+    [tasks, filterUser, filterCategory]
+  );
 
   return (
     <div className="space-y-6 md:space-y-7">

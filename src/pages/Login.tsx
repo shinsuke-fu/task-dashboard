@@ -1,3 +1,18 @@
+/**
+ * src/pages/Login.tsx
+ * -----------------------------------------------------------------------
+ * 【役割】
+ *   ログイン画面。App.tsx で isAuthenticated が false のときにのみ表示される。
+ *
+ * 【現状の実装（暫定）】
+ *   メールアドレス・パスワードが両方入力されていればログイン成功とみなす
+ *   簡易的なフォームで、実際の認証処理やユーザー情報の取得は行っていない。
+ *   ログイン成功時は onLoginSuccess() を呼び出すのみで、
+ *   「誰がログインしたか」という情報はApp.tsx側に渡していない。
+ *   TODO: ユーザー登録・ログイン機能を実装する際は、ここで認証APIを呼び、
+ *         結果のユーザー情報をApp.tsx側の状態（例: currentUser）に渡す形へ拡張する。
+ * -----------------------------------------------------------------------
+ */
 import React, { useState } from 'react';
 
 interface LoginProps {
@@ -8,6 +23,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  // フォーム送信：メール・パスワードが両方入力されていれば成功扱い（簡易実装）
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (email && password) {

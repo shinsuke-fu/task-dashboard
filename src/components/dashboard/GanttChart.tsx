@@ -1,5 +1,22 @@
+/**
+ * src/components/dashboard/GanttChart.tsx
+ * -----------------------------------------------------------------------
+ * 【役割】
+ *   ダッシュボード下部の「直近の締切」タイムラインテーブル。
+ *   今日を中心に前後1週間分のマス目を描画し、期日が近い/超過している
+ *   タスクを可視化する。
+ *
+ * 【主な処理】
+ *   1. getTimelineDays … 今日を基準に「2日前〜4日後」7日分のマス目情報を生成
+ *   2. getAssigneeNames … タスクの担当者IDを表示名に変換（共通ユーティリティ利用）
+ *   3. activeTasks … 完了以外・期日ありのタスクから、期日が近い順に最大5件抽出
+ *   4. 各タスク行で、期日超過（isOverdue）を最優先バッジとして表示
+ *      （規約③：遅延最優先ルールに準拠。他状態のUIで上書きしない）
+ * -----------------------------------------------------------------------
+ */
 import React from 'react';
 import type { Task, User } from '../../types/task';
+import { resolveAssigneeName } from '../../utils/assignee';
 
 interface GanttChartProps {
   tasks: Task[];
@@ -9,8 +26,8 @@ interface GanttChartProps {
 }
 
 export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser, filterCategory }) => {
-  
-  //  ユーザーの現在日時（2026年8月12日ベース）に追従し、過去2日〜未来4日間を動的にスライド
+
+  // 今日（実行時点）を基準に、2日前〜4日後の合計7日分のマス目情報を生成する
   const getTimelineDays = () => {
     const days = [];
     const today = new Date(); // 2026-08-12
@@ -47,10 +64,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser
 
   const getAssigneeNames = (taskAssignees: string[]) => {
     if (!taskAssignees) return '未割り当て';
-    return taskAssignees.map(assigneeStr => {
-      const found = users.find(u => u.id === assigneeStr || u.name === assigneeStr);
-      return found ? found.name : assigneeStr;
-    }).join(', ');
+    return taskAssignees.map(assigneeStr => resolveAssigneeName(assigneeStr, users)).join(', ');
   };
 
   // 親から届いた tasks から「完了以外かつ期日あり」の直近5件をソート抽出

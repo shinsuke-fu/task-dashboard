@@ -1,4 +1,15 @@
-// src/components/dashboard/KpiCards.tsx
+/**
+ * src/components/dashboard/KpiCards.tsx
+ * -----------------------------------------------------------------------
+ * 【役割】
+ *   ダッシュボード上部に並ぶ4枚のKPIカード（完了率／進捗／査読待ち／
+ *   期限超過）を表示する。数値の集計のみを行い、状態は持たない。
+ *
+ * 【主な処理】
+ *   1. filteredTasks（絞り込み後）から完了率・査読待ち件数などを算出
+ *   2. JST基準の本日日付と比較し、期限超過（overdue）件数を算出
+ * -----------------------------------------------------------------------
+ */
 import React from 'react';
 import type { Task } from '../../types/task';
 
@@ -15,6 +26,7 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks, totalTasksCou
 
   // 厳密な日本時間（JST）ベースの本日日付文字列
   const todayStr = new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+  // 完了以外・期日ありのタスクのうち、本日より過去の期日を持つものを「期限超過」としてカウント
   const overdueCount = filteredTasks.filter(t => t.status !== 'done' && t.endDate && t.endDate < todayStr).length;
 
   return (
