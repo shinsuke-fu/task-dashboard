@@ -4,7 +4,7 @@ import type { Task } from '../../types/task';
 
 interface KpiCardsProps {
   filteredTasks: Task[];
-  totalTasksCount: number; // 💡 フィルター変化に関わらず分母を一定に保つための総数
+  totalTasksCount: number; // フィルター変化に関わらず分母を一定に保つための総数
 }
 
 export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks, totalTasksCount }) => {

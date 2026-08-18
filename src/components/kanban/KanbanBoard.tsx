@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { Task, TaskStatus } from '../../types/task';
-import { TaskCard } from './TaskCard'; // 💡 新設したカードを統合
+import { TaskCard } from './TaskCard';
 
 interface KanbanBoardProps {
   tasks: Task[];
@@ -32,7 +32,7 @@ export default function KanbanBoard({
     { id: 'done', title: '完了', dotBg: 'bg-emerald-500' },
   ];
 
-  // 💡 既存の完全リアルタイムフィルタリングロジック（そのまま完全死守）
+  // 既存の完全リアルタイムフィルタリングロジック
   const displayTasks = useMemo(() => {
     return tasks.filter((task) => {
       if (!task.assignees) return filterUser === 'all';
@@ -56,7 +56,6 @@ export default function KanbanBoard({
     const taskId = e.dataTransfer.getData('text/plain');
     if (!taskId) return;
 
-    // 💥 【書き換え場所】ここから下を、reviewからのドロップ検知ロジックに置き換え
     const draggedTask = tasks.find(t => t.id === taskId);
     
     if (draggedTask && draggedTask.status === 'review' && targetStatus === 'doing') {

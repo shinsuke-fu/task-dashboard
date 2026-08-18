@@ -249,7 +249,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* ＝ 🔍 新・グローバル操作フィルターバー ＝ */}
+        {/* グローバル操作フィルターバー */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 md:px-8 py-2.5 bg-card/10 border-b border-border-card flex-shrink-0 select-none">
           <div className="flex items-center gap-4">
             {/* 担当者個別選択 */}
@@ -325,7 +325,7 @@ export default function App() {
         onAddTask={handleSaveTask} 
         users={mockUsers} 
       />
-      {/* ✨ 【追加場所】一番底に新設モーダルをマウント */}
+      {/* 一番底に新設モーダルをマウント */}
       <RejectReasonModal
         isOpen={rejectTargetId !== null}
         onClose={handleCloseRejectModal}

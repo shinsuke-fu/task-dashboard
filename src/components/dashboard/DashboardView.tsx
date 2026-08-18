@@ -6,10 +6,10 @@ import { GanttChart } from './GanttChart';
 import type { Task, User } from '../../types/task';
 
 interface DashboardViewProps {
-  tasks: Task[]; // 親から直通した大元の生のタスク配列
+  tasks: Task[];
   users: User[];
-  filterUser: string; // 💡 追加：親の共通バーの選択状態
-  filterCategory: string; // 💡 追加：親の共通バーの選択状態
+  filterUser: string;
+  filterCategory: string;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ 
@@ -19,7 +19,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   filterCategory 
 }) => {
 
-  // 💡 【バグ・重複の完全破壊】親の共通バーと100%リアルタイム連動するフィルタリング
+  // 親の共通バーと100%リアルタイム連動するフィルタリング
   const displayTasks = useMemo(() => {
     return tasks.filter((task) => {
       if (!task.assignees) return filterUser === 'all';

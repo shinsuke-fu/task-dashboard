@@ -16,7 +16,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onTriggerReject,
   onDeleteTask,
 }) => {
-  // --- 【バグ完全撲滅】完了(done)以外は、承認待ち(review)であっても期日超過なら一律で遅延判定に変えます ---
+  // --- 完了(done)以外は、承認待ち(review)であっても期日超過なら一律で遅延判定に変えます ---
   const today = new Date();
   today.setHours(0, 0, 0, 0); // 今日の始まり
   
@@ -26,7 +26,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   // 端数の出ない純粋なミリ秒差分から、残り日数を正確に計算
   const diffDays = Math.round((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
-  // 修正：status !== 'done' の条件を最優先に据え、review状態のタスクも期日を過ぎていれば確実に遅延にします
+  // status !== 'done' の条件を最優先に据え、review状態のタスクも期日を過ぎていれば確実に遅延にします
   const isOverdue = diffDays < 0 && task.status !== 'done';
   const isUrgent = diffDays >= 0 && diffDays <= 3 && task.status !== 'done';
   
@@ -66,7 +66,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </span>
         
         <div className="flex items-center gap-1.5">
-          {/* 絵文字を完全撤去した極細カスタムラインSVGアラート */}
+          {/* カスタムラインSVGアラート */}
           {isUrgent && (
             <span className="flex items-center gap-1 text-amber-400 text-[9px] font-extrabold tracking-wider bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
               <svg className={`w-2.5 h-2.5 stroke-[2.5] ${pulseAnimationClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">

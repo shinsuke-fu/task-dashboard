@@ -8,16 +8,16 @@ interface SidebarProps {
   onLogout: () => void;
 }
 
-export default function Sidebar({ 
-  currentView, 
-  onViewChange, 
-  isOpen, 
-  onToggle, 
-  onLogout // 💡 追加して受け取る
+export default function Sidebar({
+  currentView,
+  onViewChange,
+  isOpen,
+  onToggle,
+  onLogout
 }: SidebarProps) {
   const menuItems = [
-    { 
-      id: 'dashboard', 
+    {
+      id: 'dashboard',
       label: 'ダッシュボード',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -25,8 +25,8 @@ export default function Sidebar({
         </svg>
       )
     },
-    { 
-      id: 'schedule', 
+    {
+      id: 'schedule',
       label: 'スケジュール',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -34,8 +34,8 @@ export default function Sidebar({
         </svg>
       )
     },
-    { 
-      id: 'project', 
+    {
+      id: 'project',
       label: 'プロジェクト管理',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -43,8 +43,8 @@ export default function Sidebar({
         </svg>
       )
     },
-    { 
-      id: 'tasks', 
+    {
+      id: 'tasks',
       label: 'タスク一覧',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -55,7 +55,7 @@ export default function Sidebar({
   ];
 
   return (
-    <aside 
+    <aside
       className={`bg-card border-r border-border-card flex flex-col justify-between min-h-screen sticky top-0 transition-all duration-300 ease-in-out select-none ${
         isOpen ? 'w-64' : 'w-20'
       }`}

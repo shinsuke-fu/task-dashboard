@@ -20,7 +20,7 @@ export const ProgressChart: React.FC<ProgressChartProps> = ({ tasks, users }) =>
 
   const getPct = (count: number) => (total > 0 ? (count / total) * 100 : 0);
 
-  // 2. 💡 不具合修正：新規作成からのデータ（u1などID表記）も100%確実に名前で集計・連動するロジック
+  // 2. 不具合修正：新規作成からのデータ（u1などID表記）も100%確実に名前で集計・連動するロジック
   const assigneeMap: Record<string, number> = {};
   
   // 事前に全員のカウントを0で初期化（空アサインを避けてバランスを一定に保つ）
