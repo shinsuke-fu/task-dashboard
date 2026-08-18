@@ -3,16 +3,21 @@ import type { AppTheme } from '../types/task';
 interface SidebarProps {
   currentView: string;
   onViewChange: (view: string) => void;
-  theme: AppTheme;
   isOpen: boolean;
   onToggle: () => void;
+  onLogout: () => void;
 }
 
-export default function Sidebar({ currentView, onViewChange, isOpen, onToggle }: SidebarProps) {
-  // 💡 洗練されたカスタムSVGアイコンをメニューごとに定義
+export default function Sidebar({
+  currentView,
+  onViewChange,
+  isOpen,
+  onToggle,
+  onLogout
+}: SidebarProps) {
   const menuItems = [
-    { 
-      id: 'dashboard', 
+    {
+      id: 'dashboard',
       label: 'ダッシュボード',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -20,8 +25,8 @@ export default function Sidebar({ currentView, onViewChange, isOpen, onToggle }:
         </svg>
       )
     },
-    { 
-      id: 'schedule', 
+    {
+      id: 'schedule',
       label: 'スケジュール',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -29,8 +34,8 @@ export default function Sidebar({ currentView, onViewChange, isOpen, onToggle }:
         </svg>
       )
     },
-    { 
-      id: 'project', 
+    {
+      id: 'project',
       label: 'プロジェクト管理',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -38,8 +43,8 @@ export default function Sidebar({ currentView, onViewChange, isOpen, onToggle }:
         </svg>
       )
     },
-    { 
-      id: 'tasks', 
+    {
+      id: 'tasks',
       label: 'タスク一覧',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -50,7 +55,7 @@ export default function Sidebar({ currentView, onViewChange, isOpen, onToggle }:
   ];
 
   return (
-    <aside 
+    <aside
       className={`bg-card border-r border-border-card flex flex-col justify-between min-h-screen sticky top-0 transition-all duration-300 ease-in-out select-none ${
         isOpen ? 'w-64' : 'w-20'
       }`}
@@ -65,7 +70,6 @@ export default function Sidebar({ currentView, onViewChange, isOpen, onToggle }:
             }`}
             title={isOpen ? "メニューを折りたたむ" : "メニューを展開する"}
           >
-            {/* 💡 お気に入りの「角丸の四角形ロゴ」を完全復刻 */}
             <div className="w-9 h-9 flex-shrink-0 rounded-xl bg-gradient-to-br from-accent to-sky-500 flex items-center justify-center font-black text-sm text-slate-950 shadow-[0_0_15px_rgba(56,189,248,0.25)] group-hover:shadow-[0_0_20px_rgba(56,189,248,0.5)] group-hover:scale-105 transition-all duration-300 tracking-tighter">
               T+
             </div>
@@ -80,7 +84,7 @@ export default function Sidebar({ currentView, onViewChange, isOpen, onToggle }:
           </button>
         </div>
 
-        {/* 💡 閉じても開いても美しい、高級ラインアイコンメニュー */}
+        {/* 高級ラインアイコンメニュー */}
         <nav className="p-4 space-y-1.5">
           {menuItems.map((item) => {
             const isActive = currentView === item.id;
@@ -97,7 +101,6 @@ export default function Sidebar({ currentView, onViewChange, isOpen, onToggle }:
                 }`}
                 title={!isOpen ? item.label : undefined}
               >
-                {/* w-9 の中にアイコンの中心がバチッと収まり、ロゴの縦ラインと完全同期 */}
                 <span className={`w-9 flex-shrink-0 flex items-center justify-center transition-transform duration-200 group-hover:scale-110 ${isActive ? 'text-accent' : 'text-text-sub group-hover:text-text-main'}`}>
                   {item.icon}
                 </span>
@@ -108,8 +111,26 @@ export default function Sidebar({ currentView, onViewChange, isOpen, onToggle }:
         </nav>
       </div>
 
-      <div className="p-4 border-t border-border-card text-center overflow-hidden whitespace-nowrap text-text-sub text-[9px] font-bold tracking-widest">
-        {isOpen ? 'VERSION 1.0.0 @ INTERNAL' : 'V1.0'}
+      {/* フッターエリア：ログアウトボタンを内蔵 */}
+      <div className="p-4 border-t border-border-card flex flex-col gap-3">
+        <button
+          onClick={onLogout}
+          className={`w-full h-10 rounded-xl text-xs font-bold tracking-wider text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all duration-200 flex items-center cursor-pointer group ${
+            isOpen ? 'px-3 gap-3' : 'justify-center'
+          }`}
+          title={!isOpen ? "ログアウト" : undefined}
+        >
+          <span className="w-9 flex-shrink-0 flex items-center justify-center transition-transform duration-200 group-hover:scale-110">
+            <svg className="w-5 h-5 stroke-[2]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+          </span>
+          {isOpen && <span className="overflow-hidden whitespace-nowrap font-semibold">ログアウト</span>}
+        </button>
+
+        <div className="text-center overflow-hidden whitespace-nowrap text-text-sub text-[9px] font-bold tracking-widest pt-1">
+          {isOpen ? 'VERSION 1.0.0 @ INTERNAL' : 'V1.0'}
+        </div>
       </div>
     </aside>
   );

@@ -18,7 +18,7 @@ export interface Task {
   priority: TaskPriority;
   assignees: string[];    // 担当者のUser ID配列
   reviewerId?: string;    // 承認上司のUser ID
-  returnReason?: string;  // 💡 追加：差し戻し理由のコメント
+  returnReason?: string;  // 追加：差し戻し理由のコメント
 }
 
 export type AppTheme =
@@ -31,5 +31,3 @@ export type AppTheme =
   | 'lime-dark'
   | 'light'
   | 'coffee-dark';
-
-//プッシュ再度テスト
