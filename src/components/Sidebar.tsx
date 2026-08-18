@@ -85,14 +85,14 @@ export default function Sidebar({
             title={isOpen ? "メニューを折りたたむ" : "メニューを展開する"}
           >
             <div className="w-9 h-9 flex-shrink-0 rounded-xl bg-gradient-to-br from-accent to-sky-500 flex items-center justify-center font-black text-sm text-slate-950 shadow-[0_0_15px_rgba(56,189,248,0.25)] group-hover:shadow-[0_0_20px_rgba(56,189,248,0.5)] group-hover:scale-105 transition-all duration-300 tracking-tighter">
-              T+
+              W+
             </div>
             {isOpen && (
               <div className="ml-3 overflow-hidden whitespace-nowrap animate-fade-in">
                 <h2 className="font-extrabold text-sm tracking-wider text-text-main group-hover:text-accent transition-colors duration-200 uppercase">
-                  Telework Plus
+                  WORK PLUS
                 </h2>
-                <p className="text-[9px] text-text-sub font-bold tracking-widest mt-0.5">社内タスク管理ツール</p>
+                <p className="text-[9px] text-text-sub font-bold tracking-widest mt-0.5">ワークプラス</p>
               </div>
             )}
           </button>
@@ -143,7 +143,7 @@ export default function Sidebar({
         </button>
 
         <div className="text-center overflow-hidden whitespace-nowrap text-text-sub text-[9px] font-bold tracking-widest pt-1">
-          {isOpen ? 'VERSION 1.0.0 @ INTERNAL' : 'V1.0'}
+          {isOpen ? 'バージョン 1.0.0（社内版）' : 'v1.0'}
         </div>
       </div>
     </aside>

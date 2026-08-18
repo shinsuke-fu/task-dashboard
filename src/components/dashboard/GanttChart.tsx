@@ -81,7 +81,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser
         <svg className="w-3.5 h-3.5 stroke-[1.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
         </svg>
-        Deadlines & Timeline
+        締切・タイムライン
       </h3>
 
       {/* 横スクロールバー常時出現バグを完全駆逐したレスポンシブコンテナ */}
@@ -90,7 +90,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser
           
           {/* グリッドヘッダー */}
           <div className="grid grid-cols-12 items-center text-[11px] font-bold text-text-sub border-b border-surface/60 pb-3 select-none">
-            <div className="col-span-5 tracking-wider uppercase">Active Tasks</div>
+            <div className="col-span-5 tracking-wider uppercase">タスク一覧</div>
             <div className="col-span-7 grid grid-cols-7 text-center font-mono">
               {timeline.map(day => (
                 <div 
@@ -154,7 +154,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser
                                       : 'bg-accent border-accent/30' 
                                   }
                                 `}
-                                title={`${task.title} | Deadline: ${task.endDate}`}
+                                title={`${task.title} | 締切: ${task.endDate}`}
                               >
                                 {isOverdue ? '遅延' : '締切'}
                               </div>

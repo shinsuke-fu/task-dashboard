@@ -35,7 +35,7 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks, totalTasksCou
       {/* 1. 全体の完了率 */}
       <div className="bg-card border border-border-card rounded-xl p-4.5 flex items-center justify-between shadow-xs">
         <div className="space-y-1">
-          <p className="text-[11px] text-text-sub font-bold tracking-wider uppercase">Completion Rate</p>
+          <p className="text-[11px] text-text-sub font-bold tracking-wider uppercase">完了率</p>
           <div className="flex items-baseline gap-0.5">
             <span className="text-2xl font-black font-mono text-text-main tracking-tight">{completionRate}</span>
             <span className="text-[10px] text-text-sub font-bold">%</span>
@@ -52,12 +52,12 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks, totalTasksCou
       {/* 2. 総タスク / 完了数 */}
       <div className="bg-card border border-border-card rounded-xl p-4.5 flex items-center justify-between shadow-xs">
         <div className="space-y-1">
-          <p className="text-[11px] text-text-sub font-bold tracking-wider uppercase">Task Progress</p>
+          <p className="text-[11px] text-text-sub font-bold tracking-wider uppercase">タスク進捗</p>
           <div className="flex items-baseline gap-1">
             <span className="text-2xl font-black font-mono text-text-main tracking-tight">{doneCount}</span>
             <span className="text-[11px] text-text-sub">/</span>
             <span className="text-sm font-bold font-mono text-text-sub">{currentTotal}</span>
-            <span className="text-[9px] text-text-sub ml-0.5">tasks</span>
+            <span className="text-[9px] text-text-sub ml-0.5">件</span>
           </div>
         </div>
         <div className="w-8.5 h-8.5 rounded-xl bg-accent/5 border border-accent/10 flex items-center justify-center text-accent">
@@ -70,10 +70,10 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks, totalTasksCou
       {/* 3. 査読・承認待ち */}
       <div className="bg-card border border-border-card rounded-xl p-4.5 flex items-center justify-between shadow-xs">
         <div className="space-y-1">
-          <p className="text-[11px] text-text-sub font-bold tracking-wider uppercase">Awaiting Review</p>
+          <p className="text-[11px] text-text-sub font-bold tracking-wider uppercase">査読待ち</p>
           <div className="flex items-baseline gap-0.5">
             <span className={`text-2xl font-black font-mono tracking-tight ${reviewCount > 0 ? 'text-amber-500' : 'text-text-main'}`}>{reviewCount}</span>
-            <span className="text-[9px] text-text-sub ml-0.5">items</span>
+            <span className="text-[9px] text-text-sub ml-0.5">件</span>
           </div>
         </div>
         <div className={`w-8.5 h-8.5 rounded-xl border flex items-center justify-center ${reviewCount > 0 ? 'bg-amber-500/10 border-amber-500/20 text-amber-500 animate-pulse' : 'bg-border-card/50 border-border-card text-text-sub'}`}>
@@ -86,10 +86,10 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks, totalTasksCou
       {/* 4. 期限超過アラート */}
       <div className="bg-card border border-border-card rounded-xl p-4.5 flex items-center justify-between shadow-xs">
         <div className="space-y-1">
-          <p className="text-[11px] text-text-sub font-bold tracking-wider uppercase">Overdue Alert</p>
+          <p className="text-[11px] text-text-sub font-bold tracking-wider uppercase">期限超過</p>
           <div className="flex items-baseline gap-0.5">
             <span className={`text-2xl font-black font-mono tracking-tight ${overdueCount > 0 ? 'text-rose-500' : 'text-text-main'}`}>{overdueCount}</span>
-            <span className="text-[9px] text-text-sub ml-0.5">tasks</span>
+            <span className="text-[9px] text-text-sub ml-0.5">件</span>
           </div>
         </div>
         <div className={`w-8.5 h-8.5 rounded-xl border flex items-center justify-center ${overdueCount > 0 ? 'bg-rose-500/10 border-rose-500/20 text-rose-500' : 'bg-border-card/50 border-border-card text-text-sub'}`}>

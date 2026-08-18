@@ -243,7 +243,7 @@ export default function App() {
               </svg>
             </button>
             <span className="text-[10px] md:text-xs font-black tracking-widest uppercase text-accent truncate">
-              {currentView === 'dashboard' ? 'ANALYTICS' : currentView === 'tasks' ? 'BOARD' : 'EXTENSION'}
+              {currentView === 'dashboard' ? 'ダッシュボード' : currentView === 'tasks' ? 'タスクボード' : '拡張機能'}
             </span>
           </div>
 
@@ -301,7 +301,7 @@ export default function App() {
 
             {/* アバター */}
             <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-border-card border border-accent/30 flex items-center justify-center font-bold text-[8px] md:text-[10px] flex-shrink-0">
-              USR
+              自分
             </div>
           </div>
         </header>
@@ -368,7 +368,7 @@ export default function App() {
               </div>
             ) : (
               <div className="bg-card p-12 rounded-2xl border border-border-card text-center animate-fade-in">
-                <h2 className="text-md font-bold uppercase tracking-wider mb-2 text-accent">COMING SOON</h2>
+                <h2 className="text-md font-bold uppercase tracking-wider mb-2 text-accent">近日公開</h2>
               </div>
             )}
           </div>

@@ -15,7 +15,10 @@
  * -----------------------------------------------------------------------
  */
 import React from 'react';
-import type { Task } from '../../types/task';
+import type { Task, TaskPriority } from '../../types/task';
+
+// 優先度の表示ラベル（TaskForm.tsxの選択肢と表記を統一）
+const priorityLabels: Record<TaskPriority, string> = { high: '高', medium: '中', low: '低' };
 
 interface TaskCardProps {
   task: Task;
@@ -100,7 +103,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             </span>
           )}
           <span className={`text-[9px] font-bold tracking-wider px-2 py-0.5 rounded ${task.priority === 'high' ? 'bg-rose-500/10 text-rose-400' : 'bg-text-sub/10 text-text-sub'}`}>
-            {task.priority?.toUpperCase()}
+            {task.priority ? priorityLabels[task.priority] : ''}
           </span>
         </div>
       </div>
