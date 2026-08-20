@@ -12,6 +12,7 @@
  */
 import React from 'react';
 import type { Task } from '../../types/task';
+import { getTodayJstDateString } from '../../utils/date';
 
 interface KpiCardsProps {
   filteredTasks: Task[];
@@ -24,8 +25,8 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks, totalTasksCou
   const reviewCount = filteredTasks.filter(t => t.status === 'review').length;
   const completionRate = currentTotal > 0 ? Math.round((doneCount / currentTotal) * 100) : 0;
 
-  // 厳密な日本時間（JST）ベースの本日日付文字列
-  const todayStr = new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+  // 厳密な日本時間（JST）ベースの本日日付文字列（共通ユーティリティに一本化）
+  const todayStr = getTodayJstDateString();
   // 完了以外・期日ありのタスクのうち、本日より過去の期日を持つものを「期限超過」としてカウント
   const overdueCount = filteredTasks.filter(t => t.status !== 'done' && t.endDate && t.endDate < todayStr).length;
 

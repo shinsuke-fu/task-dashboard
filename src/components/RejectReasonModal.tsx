@@ -7,8 +7,9 @@
  *
  * 【主な処理】
  *   1. isOpenがtrueになるたびに入力欄をリセット
- *   2. 送信時、理由が未入力ならデフォルト文言で補完してonSubmitへ渡す
- *      （実際のタスク更新処理はApp.tsx側のhandleConfirmRejectが担当）
+ *   2. 送信時、trim後に空文字（未入力・空白のみ）なら送信せず処理を中断する
+ *      （textareaのrequired属性と合わせて「理由は必ず書く」を徹底する）
+ *      実際のタスク更新処理はApp.tsx側のhandleConfirmRejectが担当
  * -----------------------------------------------------------------------
  */
 import React, { useState, useEffect } from 'react';
@@ -30,7 +31,11 @@ export const RejectReasonModal: React.FC<RejectReasonModalProps> = ({ isOpen, on
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(reason.trim() || '要修正項目があります。');
+    // 空白のみの入力（スペース連打など）はtextareaのrequiredでは弾けないため、
+    // trim後に空ならここで送信を中断する（デフォルト文言での補完は行わない）
+    const trimmed = reason.trim();
+    if (!trimmed) return;
+    onSubmit(trimmed);
   };
 
   return (

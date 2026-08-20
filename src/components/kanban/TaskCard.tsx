@@ -16,6 +16,7 @@
  */
 import React from 'react';
 import type { Task, TaskPriority } from '../../types/task';
+import { getDaysDiffFromToday } from '../../utils/date';
 
 // 優先度の表示ラベル（TaskForm.tsxの選択肢と表記を統一）
 const priorityLabels: Record<TaskPriority, string> = { high: '高', medium: '中', low: '低' };
@@ -36,14 +37,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onDeleteTask,
 }) => {
   // --- 完了(done)以外は、承認待ち(review)であっても期日超過なら一律で遅延判定に変えます ---
-  const today = new Date();
-  today.setHours(0, 0, 0, 0); // 今日の始まり
-  
-  const targetDate = new Date(task.endDate);
-  targetDate.setHours(0, 0, 0, 0); // 期日の始まり
-  
-  // 端数の出ない純粋なミリ秒差分から、残り日数を正確に計算
-  const diffDays = Math.round((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  // 今日と期日の差分日数を、タイムゾーンに依存しない共通関数で算出（毎レンダー時に再計算されるため、
+  // taskの期日が変わって再レンダーされれば必ず最新の値になる）
+  const diffDays = getDaysDiffFromToday(task.endDate);
 
   // status !== 'done' の条件を最優先に据え、review状態のタスクも期日を過ぎていれば確実に遅延にします
   const isOverdue = diffDays < 0 && task.status !== 'done';

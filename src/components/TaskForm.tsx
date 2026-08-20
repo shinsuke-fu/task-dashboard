@@ -7,17 +7,22 @@
  *
  * 【主な処理】
  *   1. isOpenがtrueになった瞬間にフォーム項目を初期化（新規 or 編集内容）
- *   2. 作業担当者は常にログインユーザー本人（現状はu1固定）に自動セット
- *   3. 確認者（レビュアー）は自分以外のユーザーから選択
+ *   2. 作業担当者はチェックボックスで複数選択可能（新規作成時は自分のみ
+ *      選択された状態が初期値。0人にはできない）
+ *   3. 確認者（レビュアー）は、作業担当者に選ばれていないユーザーの中から選択
  *   4. 送信時にonAddTaskを呼び出し、実際の保存処理はApp.tsx側に委譲
  *
  * 【現状の制約（暫定）】
- *   currentUserId は 'u1' に固定されている。ログイン機能の実装後は、
- *   実際にログイン中のユーザーIDに置き換える必要がある。
+ *   ・currentUserId は 'u1' に固定されている。ログイン機能の実装後は、
+ *     実際にログイン中のユーザーIDに置き換える必要がある。
+ *   ・担当者はUI上は複数選択できるが、データはlocalStorage内（この端末・
+ *     このブラウザ内）にしか保存されないため、他ユーザーへの実際の
+ *     共有・通知はまだ行われない。認証・DBバックエンド導入後に対応予定。
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect } from 'react';
 import type { Task, User } from '../types/task';
+import { getTodayJstDateString } from '../utils/date';
 
 interface TaskFormProps {
   isOpen: boolean;
@@ -34,10 +39,13 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [endDate, setEndDate] = useState('');
   
-  // 自分（ログインユーザー）のIDを常に自動セットし、変更不可にします
-  const currentUserId = 'u1'; 
-  
-  // 確認者（レビュアー）を管理するステートを新設（デフォルトは山田: u2）
+  // ログインユーザー本人のID（現状は仮でu1固定。将来はログイン機能から取得）
+  const currentUserId = 'u1';
+
+  // 作業担当者（複数選択可）。新規作成時は自分のみを選択した状態を初期値とする
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([currentUserId]);
+
+  // 確認者（レビュアー）を管理するステート（デフォルトは山田: u2）
   const [reviewerId, setReviewerId] = useState<string>('u2');
 
   // isOpen が「true になった瞬間」だけ確実に初期化し、編集中の中途半端な上書きループを徹底遮断
@@ -50,7 +58,13 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
       setCategory(editingTask.category || '開発');
       setPriority(editingTask.priority || 'medium');
       setEndDate(editingTask.endDate);
-      
+
+      // 既存タスクの担当者をセット（データ不整合等で空の場合は自分のみにフォールバック）
+      setAssigneeIds(
+        editingTask.assignees && editingTask.assignees.length > 0
+          ? editingTask.assignees
+          : [currentUserId]
+      );
       // 既存タスクに確認者が設定されていればそれをセット
       setReviewerId(editingTask.reviewerId || 'u2');
     } else {
@@ -58,19 +72,46 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
       setDescription('');
       setCategory('開発');
       setPriority('medium');
-      setEndDate('2026-08-10'); // 2026年8月JST基準のデフォルト
+      setEndDate(getTodayJstDateString()); // 期日の初期値は「今日」（JST基準）
+      setAssigneeIds([currentUserId]); // 担当者初期値：自分のみ
       setReviewerId('u2'); // デフォルト確認者
     }
   }, [isOpen]); // 依存配列を isOpen のみに絞ることで、送信時の逆流リセットバグを完全消滅させます
 
+  // 担当者チェックボックスの選択・解除を切り替える。
+  // 担当者は最低1人必須のため、残り1人の状態からの解除操作は無視する
+  const handleToggleAssignee = (userId: string) => {
+    setAssigneeIds(prev => {
+      if (prev.includes(userId)) {
+        if (prev.length === 1) return prev; // 最後の1人は解除させない
+        return prev.filter(id => id !== userId);
+      }
+      return [...prev, userId];
+    });
+  };
+
+  // 確認者（レビュアー）が、直後に自分自身が担当者として選ばれてしまった場合に
+  // 「担当者＝確認者」という矛盾状態にならないよう、選べる候補から自動的に外す
+  useEffect(() => {
+    if (assigneeIds.includes(reviewerId)) {
+      const fallback = users.find(user => !assigneeIds.includes(user.id));
+      if (fallback) setReviewerId(fallback.id);
+    }
+  }, [assigneeIds, reviewerId, users]);
+
   if (!isOpen) return null;
 
-  // 自分以外の確認者（レビュアー）候補メンバーを抽出（自分をアサインから除外するため）
-  const reviewerCandidates = users.filter(user => user.id !== currentUserId);
+  // 担当者に選ばれていないユーザーのみを確認者（レビュアー）候補として抽出
+  // （自分で自分の作業を承認できてしまう状態を防ぐため）
+  // 既知の制約：全ユーザーを担当者に選んだ場合、確認者の候補が0人になる。
+  // 現状はモックユーザーが3人のみのため起こり得るが、実際のユーザー登録・
+  // ログイン機能の実装時に候補ゼロを防ぐ制御を合わせて検討する想定。
+  const reviewerCandidates = users.filter(user => !assigneeIds.includes(user.id));
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+    if (assigneeIds.length === 0) return; // 担当者は最低1人必須（通常はUI側で常に保証済み）
 
     // 親の型定義(string等)に安全に適合させ、最新の値を確実に最優先で送信
     onAddTask({
@@ -78,10 +119,10 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
       description: description.trim() ? description.trim() : undefined,
       category: category,
       priority: priority,
-      startDate: editingTask?.startDate ? editingTask.startDate : '2026-08-10',
+      startDate: editingTask?.startDate ? editingTask.startDate : getTodayJstDateString(), // 新規作成時は今日を開始日にする
       endDate: endDate,
-      assignees: [currentUserId], // 担当者は常に自分「u1」を自動で100%固定代入
-      reviewerId: reviewerId,     // 選択した確認者（レビュアー）のIDを直通バインド
+      assignees: assigneeIds,  // チェックボックスで選択された担当者ID配列をそのまま送信
+      reviewerId: reviewerId,  // 選択した確認者（レビュアー）のIDを直通バインド
     });
   };
 
@@ -122,7 +163,40 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
             />
           </div>
 
-          {/*「担当者アサイン」欄から、スマートで機能的な「確認者（レビュアー）指定」欄へ刷新 */}
+          {/* 作業担当者（複数選択可）：チェックボックスでユーザーを選択 */}
+          <div>
+            <label className="block text-[10px] font-black text-text-sub uppercase mb-1">
+              作業担当者（複数選択可）
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {users.map(user => {
+                const isSelected = assigneeIds.includes(user.id);
+                return (
+                  <label
+                    key={user.id}
+                    className={`flex items-center gap-1.5 h-8 px-3 rounded-xl border text-[11px] font-bold cursor-pointer transition select-none ${
+                      isSelected
+                        ? 'bg-accent/10 border-accent/40 text-accent'
+                        : 'bg-base border-border-card text-text-sub hover:text-text-main'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => handleToggleAssignee(user.id)}
+                      className="w-3 h-3 accent-current cursor-pointer"
+                    />
+                    {user.name}
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-text-sub mt-1.5 pl-1 font-medium">
+              ※現在はこの端末（ブラウザ）内のみに保存される個人用データのため、他ユーザーへの実際のタスク共有はまだ行われません。ログイン・アカウント機能の実装後、他ユーザーへの割り当てが実際に反映される予定です。
+            </p>
+          </div>
+
+          {/* 確認者（レビュアー）：作業担当者に選ばれているユーザーは候補から自動的に除外される */}
           <div>
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">
               タスクの確認者・承認者（上司・レビュアー）
@@ -138,9 +212,6 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
                 </option>
               ))}
             </select>
-            <p className="text-[10px] text-text-sub mt-1.5 pl-1 font-medium">
-              ※ご自身の個人用ワークスペースのため、タスクの作業担当者は自動的に <span className="text-accent font-bold">あなた（自分）</span> に固定されます。
-            </p>
           </div>
 
           {/* メタデータ選択（カテゴリ・優先度・期日） */}
