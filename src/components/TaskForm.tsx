@@ -10,7 +10,9 @@
  *   2. 作業担当者はチェックボックスで複数選択可能（新規作成時は自分のみ
  *      選択された状態が初期値。0人にはできない）
  *   3. 確認者（レビュアー）は、作業担当者に選ばれていないユーザーの中から選択
- *   4. 送信時にonAddTaskを呼び出し、実際の保存処理はApp.tsx側に委譲
+ *   4. サブタスク（チェックリスト）の追加・チェック切替・削除を管理する
+ *      （承認フローには関与しない、担当者向けの簡易メモという位置づけ）
+ *   5. 送信時にonAddTaskを呼び出し、実際の保存処理はApp.tsx側に委譲
  *
  * 【現状の制約（暫定）】
  *   ・currentUserId は 'u1' に固定されている。ログイン機能の実装後は、
@@ -21,7 +23,7 @@
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect } from 'react';
-import type { Task, User } from '../types/task';
+import type { Task, User, Subtask } from '../types/task';
 import { getTodayJstDateString } from '../utils/date';
 
 interface TaskFormProps {
@@ -48,6 +50,11 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
   // 確認者（レビュアー）を管理するステート（デフォルトは山田: u2）
   const [reviewerId, setReviewerId] = useState<string>('u2');
 
+  // サブタスク（チェックリスト）。承認フローとは独立した、担当者向けの簡易メモ
+  const [subtasks, setSubtasks] = useState<Subtask[]>([]);
+  // 新規サブタスク入力欄の値
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+
   // isOpen が「true になった瞬間」だけ確実に初期化し、編集中の中途半端な上書きループを徹底遮断
   useEffect(() => {
     if (!isOpen) return;
@@ -67,6 +74,8 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
       );
       // 既存タスクに確認者が設定されていればそれをセット
       setReviewerId(editingTask.reviewerId || 'u2');
+      // 既存タスクのサブタスクをセット（無ければ空リスト）
+      setSubtasks(editingTask.subtasks || []);
     } else {
       setTitle('');
       setDescription('');
@@ -75,7 +84,9 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
       setEndDate(getTodayJstDateString()); // 期日の初期値は「今日」（JST基準）
       setAssigneeIds([currentUserId]); // 担当者初期値：自分のみ
       setReviewerId('u2'); // デフォルト確認者
+      setSubtasks([]); // サブタスクは空から開始
     }
+    setNewSubtaskTitle(''); // 入力欄は常にリセット
   }, [isOpen]); // 依存配列を isOpen のみに絞ることで、送信時の逆流リセットバグを完全消滅させます
 
   // 担当者チェックボックスの選択・解除を切り替える。
@@ -88,6 +99,25 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
       }
       return [...prev, userId];
     });
+  };
+
+  // サブタスクを1件追加する（入力欄が空・空白のみの場合は何もしない）
+  const handleAddSubtask = () => {
+    // タスク名の state（title）と紛らわしいので、あえて別名にしている
+    const trimmedTitle = newSubtaskTitle.trim();
+    if (!trimmedTitle) return;
+    setSubtasks(prev => [...prev, { id: crypto.randomUUID(), title: trimmedTitle, done: false }]);
+    setNewSubtaskTitle('');
+  };
+
+  // サブタスクのチェック状態を切り替える
+  const handleToggleSubtask = (id: string) => {
+    setSubtasks(prev => prev.map(s => (s.id === id ? { ...s, done: !s.done } : s)));
+  };
+
+  // サブタスクを1件削除する
+  const handleRemoveSubtask = (id: string) => {
+    setSubtasks(prev => prev.filter(s => s.id !== id));
   };
 
   // 確認者（レビュアー）が、直後に自分自身が担当者として選ばれてしまった場合に
@@ -123,6 +153,7 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
       endDate: endDate,
       assignees: assigneeIds,  // チェックボックスで選択された担当者ID配列をそのまま送信
       reviewerId: reviewerId,  // 選択した確認者（レビュアー）のIDを直通バインド
+      subtasks: subtasks,      // サブタスク（チェックリスト）をそのまま送信
     });
   };
 
@@ -161,6 +192,64 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
               rows={2} 
               className="w-full bg-base border border-border-card rounded-xl p-3 text-text-main focus:outline-none focus:border-accent resize-none leading-relaxed" 
             />
+          </div>
+
+          {/* サブタスク（チェックリスト）：承認フローとは独立した、担当者向けの簡易メモ */}
+          <div>
+            <label className="block text-[10px] font-black text-text-sub uppercase mb-1">
+              サブタスク（任意・チェックリスト）
+            </label>
+            {subtasks.length > 0 && (
+              <div className="space-y-1.5 mb-2">
+                {subtasks.map((sub) => (
+                  <div key={sub.id} className="flex items-center gap-2 bg-base border border-border-card rounded-lg px-2.5 h-8">
+                    <input
+                      type="checkbox"
+                      checked={sub.done}
+                      onChange={() => handleToggleSubtask(sub.id)}
+                      className="w-3.5 h-3.5 accent-accent cursor-pointer flex-shrink-0"
+                    />
+                    <span className={`flex-1 text-[11px] font-medium truncate ${sub.done ? 'line-through text-text-sub' : 'text-text-main'}`}>
+                      {sub.title}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSubtask(sub.id)}
+                      className="text-text-sub hover:text-rose-400 transition cursor-pointer flex-shrink-0 text-[10px] px-1"
+                    >
+                      削除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                value={newSubtaskTitle}
+                onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enterキーでの「フォーム全体の送信」を防ぎ、サブタスク追加だけを行う
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddSubtask();
+                  }
+                }}
+                placeholder="サブタスクを追加..."
+                className="flex-1 h-8 bg-base border border-border-card rounded-lg px-2.5 text-[11px] text-text-main focus:outline-none focus:border-accent"
+              />
+              <button
+                type="button"
+                onClick={handleAddSubtask}
+                className="h-8 px-3 bg-surface hover:bg-base border border-border-card/50 rounded-lg text-[10px] font-bold text-text-sub hover:text-text-main transition cursor-pointer"
+              >
+                追加
+              </button>
+            </div>
+            <p className="text-[10px] text-text-sub mt-1.5 pl-1 font-medium">
+              ※サブタスクは担当者向けの簡易チェックリストです。期日は親タスクのものをそのまま
+              使います。承認申請・差し戻し・承認完了といった承認フローには影響しません。
+            </p>
           </div>
 
           {/* 作業担当者（複数選択可）：チェックボックスでユーザーを選択 */}
@@ -214,8 +303,9 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
             </select>
           </div>
 
-          {/* メタデータ選択（カテゴリ・優先度・期日） */}
-          <div className="grid grid-cols-3 gap-3">
+          {/* メタデータ選択（カテゴリ・優先度・期日）：スマホ幅では窮屈になるため縦積みにし、
+              sm以上（640px〜）で従来通り横3列に並べる */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-[10px] font-black text-text-sub uppercase mb-1">カテゴリ</label>
               <select 

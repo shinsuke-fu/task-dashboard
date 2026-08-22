@@ -12,6 +12,8 @@
  *      優先順位で枠線・背景スタイルを決定（他状態のUIで上書きしない）
  *   3. ステータスに応じたアクションボタンを出し分け
  *      （doing→承認申請 / review→差し戻し・承認完了 / 常に削除）
+ *   4. サブタスクがあれば「完了数/総数」の進捗バッジを表示する
+ *      （チェックの切替はこのカード上では行わず、編集モーダルで行う）
  * -----------------------------------------------------------------------
  */
 import React from 'react';
@@ -96,6 +98,15 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               遅延
+            </span>
+          )}
+          {/* サブタスクの進捗（完了数/総数）。存在する場合のみ表示 */}
+          {task.subtasks && task.subtasks.length > 0 && (
+            <span className="flex items-center gap-1 text-text-sub text-[9px] font-extrabold tracking-wider bg-surface px-1.5 py-0.5 rounded border border-border-card/40">
+              <svg className="w-2.5 h-2.5 stroke-[2.5]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {task.subtasks.filter(s => s.done).length}/{task.subtasks.length}
             </span>
           )}
           <span className={`text-[9px] font-bold tracking-wider px-2 py-0.5 rounded ${task.priority === 'high' ? 'bg-rose-500/10 text-rose-400' : 'bg-text-sub/10 text-text-sub'}`}>

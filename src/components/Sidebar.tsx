@@ -3,13 +3,17 @@
  * -----------------------------------------------------------------------
  * 【役割】
  *   画面左側のナビゲーションメニュー（開閉可能）。ロゴ／メニュー項目／
- *   ログアウトボタンを表示するだけの見た目主体のコンポーネントで、
+ *   ログアウトボタン・設定ボタンを表示するだけの見た目主体のコンポーネントで、
  *   状態は一切保持しない（表示中ビュー・開閉状態はApp.tsxからProps経由）。
  *
  * 【主な処理】
  *   1. menuItems配列を定義し、選択中(currentView)に応じてハイライト表示
  *   2. isOpen（開閉状態）に応じて、幅・ラベル表示・アイコンレイアウトを切替
  *   3. ログアウトボタン押下でonLogoutを呼び出す（実処理はApp.tsx側）
+ *   4. 設定ボタン押下でonOpenSettingsを呼び出す（App.tsx側で currentView を 'settings' に
+ *      切り替え、設定ページへ遷移する。ヘッダーのアバター横にある設定ボタンと同じ
+ *      ページへ遷移する、2つ目の入り口）。currentView==='settings' のときは選択中と
+ *      同じ見た目でハイライト表示する
  * -----------------------------------------------------------------------
  */
 
@@ -19,6 +23,7 @@ interface SidebarProps {
   isOpen: boolean;
   onToggle: () => void;
   onLogout: () => void;
+  onOpenSettings: () => void;
 }
 
 export default function Sidebar({
@@ -26,7 +31,8 @@ export default function Sidebar({
   onViewChange,
   isOpen,
   onToggle,
-  onLogout
+  onLogout,
+  onOpenSettings
 }: SidebarProps) {
   // ナビゲーション項目の定義（id は App.tsx の currentView と対応）
   const menuItems = [
@@ -125,22 +131,44 @@ export default function Sidebar({
         </nav>
       </div>
 
-      {/* フッターエリア：ログアウトボタンを内蔵 */}
+      {/* フッターエリア：ログアウトボタン＋設定ボタンを内蔵。
+          展開時は横並び（ログアウトが幅可変、設定はアイコンのみの正方形）、
+          折りたたみ時は幅が足りないため縦並びにする */}
       <div className="p-4 border-t border-border-card flex flex-col gap-3">
-        <button
-          onClick={onLogout}
-          className={`w-full h-10 rounded-xl text-xs font-bold tracking-wider text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all duration-200 flex items-center cursor-pointer group ${
-            isOpen ? 'px-3 gap-3' : 'justify-center'
-          }`}
-          title={!isOpen ? "ログアウト" : undefined}
-        >
-          <span className="w-9 flex-shrink-0 flex items-center justify-center transition-transform duration-200 group-hover:scale-110">
+        <div className={`flex gap-2 ${isOpen ? 'flex-row' : 'flex-col'}`}>
+          <button
+            onClick={onLogout}
+            className={`h-10 rounded-xl text-xs font-bold tracking-wider text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all duration-200 flex items-center cursor-pointer group ${
+              isOpen ? 'flex-1 px-3 gap-3' : 'w-full justify-center'
+            }`}
+            title={!isOpen ? "ログアウト" : undefined}
+          >
+            <span className="w-9 flex-shrink-0 flex items-center justify-center transition-transform duration-200 group-hover:scale-110">
+              <svg className="w-5 h-5 stroke-[2]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </span>
+            {isOpen && <span className="overflow-hidden whitespace-nowrap font-semibold">ログアウト</span>}
+          </button>
+
+          {/* 設定ボタン：ヘッダーのアバター横のボタンと同じ設定ページへ遷移する（2つ目の入り口） */}
+          <button
+            onClick={onOpenSettings}
+            className={`h-10 flex-shrink-0 rounded-xl border transition-all duration-200 flex items-center justify-center cursor-pointer ${
+              isOpen ? 'w-10' : 'w-full'
+            } ${
+              currentView === 'settings'
+                ? 'bg-accent/10 text-accent border-accent/20'
+                : 'text-text-sub hover:text-text-main hover:bg-surface border-transparent hover:border-border-card'
+            }`}
+            title="設定"
+          >
             <svg className="w-5 h-5 stroke-[2]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 0 1 1.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 0 1-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 0 1-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.107-1.204l-.527-.738a1.125 1.125 0 0 1 .12-1.45l.773-.773a1.125 1.125 0 0 1 1.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
             </svg>
-          </span>
-          {isOpen && <span className="overflow-hidden whitespace-nowrap font-semibold">ログアウト</span>}
-        </button>
+          </button>
+        </div>
 
         <div className="text-center overflow-hidden whitespace-nowrap text-text-sub text-[9px] font-bold tracking-widest pt-1">
           {isOpen ? 'バージョン 1.0.0（社内版）' : 'v1.0'}

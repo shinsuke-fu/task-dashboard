@@ -6,7 +6,7 @@
  *   タスクをドラッグ＆ドロップで移動できるカンバンボード。
  *
  * 【主な処理】
- *   1. tasksを共通フィルター（filterTasksByUserAndCategory）で絞り込み、
+ *   1. tasksを共通フィルター（filterTasks）で担当者・カテゴリ・優先度を絞り込み、
  *      さらにcolumn.id（ステータス）ごとに振り分けて表示
  *   2. ドラッグ＆ドロップでのステータス変更を処理。
  *      review → doing への移動だけは特別扱いし、差し戻し理由モーダルを起動する
@@ -15,12 +15,13 @@
 import { useState, useMemo } from 'react';
 import type { Task, TaskStatus } from '../../types/task';
 import { TaskCard } from './TaskCard';
-import { filterTasksByUserAndCategory } from '../../utils/assignee';
+import { filterTasks } from '../../utils/assignee';
 
 interface KanbanBoardProps {
   tasks: Task[];
   filterUser: string;
   filterCategory: string;
+  filterPriority: string;
   onUpdateStatus: (id: string, newStatus: TaskStatus) => void;
   onProcessAction: (id: string, action: 'apply' | 'approve' | 'reject', reason?: string) => void;
   onTriggerReject: (id: string) => void;
@@ -28,15 +29,16 @@ interface KanbanBoardProps {
   onStartEdit: (task: Task) => void;
 }
 
-export default function KanbanBoard({ 
-  tasks, 
-  filterUser, 
-  filterCategory, 
-  onUpdateStatus, 
-  onProcessAction, 
+export default function KanbanBoard({
+  tasks,
+  filterUser,
+  filterCategory,
+  filterPriority,
+  onUpdateStatus,
+  onProcessAction,
   onTriggerReject,
-  onDeleteTask, 
-  onStartEdit 
+  onDeleteTask,
+  onStartEdit
 }: KanbanBoardProps) {
   const [activeColumn, setActiveColumn] = useState<TaskStatus | null>(null);
 
@@ -49,8 +51,8 @@ export default function KanbanBoard({
 
   // 既存の完全リアルタイムフィルタリングロジック（共通ユーティリティに一本化）
   const displayTasks = useMemo(
-    () => filterTasksByUserAndCategory(tasks, filterUser, filterCategory),
-    [tasks, filterUser, filterCategory]
+    () => filterTasks(tasks, filterUser, filterCategory, filterPriority),
+    [tasks, filterUser, filterCategory, filterPriority]
   );
 
   // ドロップ時のハンドラー：review→doingの移動だけ差し戻しモーダル経由にし、それ以外は即時ステータス変更

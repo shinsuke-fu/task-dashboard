@@ -6,8 +6,8 @@
  *   GanttChart を縦に並べて表示するだけのコンテナコンポーネント。
  *
  * 【主な処理】
- *   1. App.tsxから受け取ったtasksを、共通フィルター（filterTasksByUserAndCategory）
- *      で担当者・カテゴリ絞り込みし、displayTasksとして各子コンポーネントへ配布
+ *   1. App.tsxから受け取ったtasksを、共通フィルター（filterTasks）で
+ *      担当者・カテゴリ・優先度を絞り込み、displayTasksとして各子コンポーネントへ配布
  * -----------------------------------------------------------------------
  */
 import React, { useMemo } from 'react';
@@ -15,26 +15,28 @@ import { KpiCards } from './KpiCards';
 import { ProgressChart } from './ProgressChart';
 import { GanttChart } from './GanttChart';
 import type { Task, User } from '../../types/task';
-import { filterTasksByUserAndCategory } from '../../utils/assignee';
+import { filterTasks } from '../../utils/assignee';
 
 interface DashboardViewProps {
   tasks: Task[];
   users: User[];
   filterUser: string;
   filterCategory: string;
+  filterPriority: string;
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ 
-  tasks, 
-  users, 
-  filterUser, 
-  filterCategory 
+export const DashboardView: React.FC<DashboardViewProps> = ({
+  tasks,
+  users,
+  filterUser,
+  filterCategory,
+  filterPriority
 }) => {
 
   // 親の共通バーと100%リアルタイム連動するフィルタリング（共通ユーティリティに一本化）
   const displayTasks = useMemo(
-    () => filterTasksByUserAndCategory(tasks, filterUser, filterCategory),
-    [tasks, filterUser, filterCategory]
+    () => filterTasks(tasks, filterUser, filterCategory, filterPriority),
+    [tasks, filterUser, filterCategory, filterPriority]
   );
 
   return (

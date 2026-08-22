@@ -17,6 +17,7 @@
 import React from 'react';
 import type { Task, User } from '../../types/task';
 import { resolveAssigneeName } from '../../utils/assignee';
+import { getTodayJstDateString } from '../../utils/date';
 
 interface GanttChartProps {
   tasks: Task[];
@@ -27,12 +28,15 @@ interface GanttChartProps {
 
 export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser, filterCategory }) => {
 
-  // 今日（実行時点）を基準に、2日前〜4日後の合計7日分のマス目情報を生成する
+  // 今日（JST基準）を基準に、2日前〜4日後の合計7日分のマス目情報を生成する
   const getTimelineDays = () => {
     const days = [];
-    const today = new Date(); // 2026-08-12
-    today.setHours(0, 0, 0, 0); // タイムゾーンの端数バグを完全封殺
-    
+    // 「今日」はブラウザのローカル時刻ではなく、src/utils/date.ts の共通関数（JST基準）から取得する。
+    // TaskCard.tsx・KpiCards.tsx・TaskForm.tsx・ScheduleView.tsxと同じ基準に統一することで、
+    // 実行環境のタイムゾーンによって「今日」がズレる可能性を排除する
+    const [ty, tm, td] = getTodayJstDateString().split('-').map(Number);
+    const today = new Date(ty, tm - 1, td); // カレンダー上の「今日」（時刻は00:00固定）
+
     // 今日から2日前を左端の起点にする
     const startTimelineDate = new Date(today.getTime());
     startTimelineDate.setDate(today.getDate() - 2);
@@ -58,9 +62,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser
   };
 
   const timeline = getTimelineDays();
-  
-  //  【修正の核心】現実の今日（2026-08-12）の正確な文字列を基準日として取得
-  const todayStr = new Date().toISOString().split('T')[0]; 
+
+  // 「今日」の文字列（JST基準）。期日超過（isOverdue）の判定に使うため、
+  // 他コンポーネントと同じ基準関数を使い、判定のズレを防ぐ
+  const todayStr = getTodayJstDateString();
 
   const getAssigneeNames = (taskAssignees: string[]) => {
     if (!taskAssignees) return '未割り当て';

@@ -3,13 +3,16 @@
  * -----------------------------------------------------------------------
  * 【役割】
  *   担当者（assignee）まわりの処理を集約した共通ユーティリティ。
- *   DashboardView / KanbanBoard / GanttChart / ProgressChart に
- *   重複していたロジックを一本化したもので、挙動は元のインライン実装
- *   から一切変更していない（引き算リファクタのみ）。
+ *   DashboardView / KanbanBoard / ScheduleView に重複していたロジックを
+ *   一本化したもの。
  *
  * 【主な処理】
- *   1. resolveAssigneeName          … 担当者ID/名前 → 表示名の解決
- *   2. filterTasksByUserAndCategory … 担当者・カテゴリでのタスク絞り込み
+ *   1. resolveAssigneeName … 担当者ID/名前 → 表示名の解決
+ *   2. filterTasks         … グローバル操作フィルターバー（担当者・カテゴリ・
+ *      優先度）に基づくタスク絞り込み。2026-08-22に優先度フィルターを追加した際、
+ *      それまでの`filterTasksByUserAndCategory`という名前が実態と合わなくなった
+ *      ため`filterTasks`に改名した（担当者・カテゴリの2軸だけの絞り込み関数
+ *      ではなくなったため）
  * -----------------------------------------------------------------------
  */
 import type { Task, User } from '../types/task';
@@ -26,16 +29,20 @@ export function resolveAssigneeName(assigneeRef: string, users: User[]): string 
 }
 
 /**
- * グローバル操作フィルターバー（担当者・カテゴリ）に基づくタスク絞り込み。
+ * グローバル操作フィルターバー（担当者・カテゴリ・優先度）に基づくタスク絞り込み。
  * 元々 DashboardView と KanbanBoard の useMemo 内に完全に同一のロジックが
  * 重複していたため共通化。
  * ※ 過去データ形式（assignees に ID ではなく名前文字列が入っているケース）への
  *   後方互換フォールバックも既存仕様のまま維持。
+ * ※ task.assignees が無い（不正データ等の）場合の早期returnは、従来
+ *   filterUserの一致だけで判定していた挙動をそのまま維持している
+ *   （filterCategory・filterPriorityはこの分岐では見ない）。
  */
-export function filterTasksByUserAndCategory(
+export function filterTasks(
   tasks: Task[],
   filterUser: string,
-  filterCategory: string
+  filterCategory: string,
+  filterPriority: string
 ): Task[] {
   return tasks.filter((task) => {
     if (!task.assignees) return filterUser === 'all';
@@ -51,6 +58,7 @@ export function filterTasksByUserAndCategory(
       });
 
     const matchesCategory = filterCategory === 'all' || task.category === filterCategory;
-    return matchesUser && matchesCategory;
+    const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
+    return matchesUser && matchesCategory && matchesPriority;
   });
 }
