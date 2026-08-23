@@ -2,18 +2,25 @@
  * src/App.tsx
  * -----------------------------------------------------------------------
  * 【役割】
- *   アプリ全体を束ねるルートコンポーネント。tasks・認証状態・テーマ・
- *   フィルター条件など「すべての状態」をここで一元管理する
+ *   アプリ全体を束ねるルートコンポーネント。tasks・ユーザー一覧・認証状態・
+ *   テーマ・フィルター条件など「すべての状態」をここで一元管理する
  *   Single Source of Truth（規約①）。子・孫コンポーネントは状態を
  *   直接書き換えず、Props経由で渡された関数（onUpdateStatus 等）を
  *   呼び出すことでのみ状態変更をリクエストする。
  *
  * 【主な処理】
- *   1. tasks / 認証状態 / テーマ を state で保持し、localStorage と同期
+ *   1. 認証状態はSupabase Authのセッション（onAuthStateChange）と連動する。
+ *      tasks（タスク一覧）・users（担当者一覧）はSupabaseのDBから取得し、
+ *      テーマ・通知ON/OFF設定など「個人の見た目の好み」だけはこれまで通り
+ *      ブラウザのlocalStorageに保存する（この2つは複数人で共有する必要が
+ *      無いデータのため、あえてSupabase化していない）
  *   2. currentView（文字列）の切り替えだけで画面を出し分ける
  *      「一面集約型SPA」のルーティングを実現（外部ルーターは未使用・規約②）
  *   3. タスクの作成・編集・削除・ステータス変更・承認/差し戻しなど、
- *      タスク操作系ハンドラーをすべてここに集約し、子コンポーネントへ配布
+ *      タスク操作系ハンドラーをすべてここに集約し、子コンポーネントへ配布。
+ *      いずれもSupabaseへの書き込み後に`refreshTasks()`で最新状態を
+ *      再取得し直す、シンプルな「毎回サーバーから読み直す」方式にしている
+ *      （楽観的更新はせず、まずは確実さを優先）
  *   4. グローバルヘッダー／担当者・カテゴリ・優先度のフィルターバー／サイドバー
  *      など、画面全体のレイアウトを組み立てる（フィルターは画面ごとに分けず、
  *      全画面共通の状態として扱う方針）
@@ -22,15 +29,15 @@
  *   6. 「スケジュール」タブでは月間カレンダー形式のScheduleViewを表示する
  *      （「プロジェクト管理」タブは引き続き未実装のプレースホルダーのまま）
  *   7. 「設定」タブ（currentView==='settings'）では、テーマ／通知ON-OFF／
- *      サンプルデータへのリセットを行うSettingsViewを表示する。ヘッダーの
+ *      サンプルデータのリセットを行うSettingsViewを表示する。ヘッダーの
  *      アバター横と、サイドバー下部のログアウト横、2箇所の⚙️ボタンから、
- *      どちらもこの同じ設定ページへ遷移する（以前はモーダルだったが、
- *      ④のバックエンド導入後に項目が増える見込みのため、他画面と同じ
- *      1ページ表示に変更した）
+ *      どちらもこの同じ設定ページへ遷移する
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect, useRef } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import type { Task, AppTheme, User, NotificationType } from './types/task';
+import { supabase } from './lib/supabaseClient';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/kanban/KanbanBoard';
 import TaskForm from './components/TaskForm';
@@ -40,14 +47,6 @@ import { SettingsView } from './components/settings/SettingsView';
 import { Login } from './pages/Login';
 import { RejectReasonModal } from './components/RejectReasonModal';
 import { getTodayJstDateString } from './utils/date';
-
-// 仮の担当者マスタ（モックデータ）。
-// TODO: ログイン／ユーザー登録機能の実装後は、登録済みユーザー一覧に置き換える想定。
-const mockUsers: User[] = [
-  { id: 'u1', name: '自分（作業者）' },
-  { id: 'u2', name: '山田（開発）' },
-  { id: 'u3', name: '佐藤（上司・レビュアー）' },
-];
 
 // 通知ベルに表示するアラートアイテム。種類（NotificationType）はtypes/task.tsで定義し、
 // SettingsView.tsxの通知ON-OFF設定とも共有している
@@ -66,7 +65,7 @@ const defaultNotificationSettings: Record<NotificationType, boolean> = {
   reviewRequested: true,
 };
 
-// 初回起動時（localStorageに保存済みデータが無いとき）に表示する初期タスク
+// 「サンプルデータにリセット」（設定ページ）で作り直す、たたき台のサンプルタスク
 const initialTasks: Task[] = [
   {
     id: '1',
@@ -77,36 +76,80 @@ const initialTasks: Task[] = [
     startDate: '2026-08-01',
     endDate: '2026-08-10',
     priority: 'high',
-    assignees: ['u1'],
-    reviewerId: 'u3',
+    assignees: [],
+    reviewerId: undefined,
   },
 ];
 
+// Supabaseから取得した1行分の生データの型（tasksテーブル＋結合したtask_assignees/
+// task_subtasks）。このファイル内でフロント用のTask型（src/types/task.ts）へ変換する
+interface SupabaseTaskRow {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  category: string;
+  start_date: string;
+  end_date: string;
+  priority: string;
+  reviewer_id: string | null;
+  return_reason: string | null;
+  created_by: string;
+  task_assignees: { user_id: string }[];
+  task_subtasks: { id: string; title: string; done: boolean }[];
+}
+
+const mapRowToTask = (row: SupabaseTaskRow): Task => ({
+  id: row.id,
+  title: row.title,
+  description: row.description ?? undefined,
+  status: row.status as Task['status'],
+  category: row.category as Task['category'],
+  startDate: row.start_date,
+  endDate: row.end_date,
+  priority: row.priority as Task['priority'],
+  assignees: row.task_assignees.map((a) => a.user_id),
+  reviewerId: row.reviewer_id ?? undefined,
+  returnReason: row.return_reason ?? undefined,
+  subtasks: row.task_subtasks.map((s) => ({ id: s.id, title: s.title, done: s.done })),
+});
+
 export default function App() {
 
-  // true の間はログイン画面をスキップして開発を進められる開発用フラグ。
-  // 本番リリース前に false へ戻すこと。
-  const IS_DEV_MODE = true;
+  // ---- 認証（Supabase Authのセッションと連動） ----
 
-  // 自分（ログインユーザー）のID。TaskForm.tsxと同様、ログイン機能実装までの暫定値。
-  // 通知ベルで「自分宛て」の通知を絞り込むために使用する
-  const currentUserId = 'u1';
+  const [session, setSession] = useState<Session | null>(null);
+  // 初回のセッション確認が終わるまでは、ログイン画面を一瞬出さないようにするためのフラグ
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+    // ログイン・ログアウト・トークン更新などのセッション変化を購読し続ける
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const isAuthenticated = session !== null;
+  // 自分（ログインユーザー）のID。通知ベルの「自分宛て」判定や、
+  // タスク作成時のcreated_by／デフォルト担当者に使用する
+  const currentUserId = session?.user.id ?? '';
 
   // ---- 状態管理（App.tsx が保持する Single Source of Truth） ----
 
-  // ログイン認証状態。IS_DEV_MODE中は常にtrue、それ以外はlocalStorageの保存値を復元
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    if (IS_DEV_MODE) return true; // 開発中はログイン画面を自動パス
-    return localStorage.getItem('dashboard_auth') === 'true';
-  });
+  // 担当者一覧（Supabaseの`profiles`テーブルから取得）。ログインしていなければ空配列
+  const [users, setUsers] = useState<User[]>([]);
 
-  // タスク一覧本体。localStorageに保存済みならそれを復元し、無ければ初期タスクを使用
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    const saved = localStorage.getItem('dashboard_tasks');
-    return saved ? JSON.parse(saved) : initialTasks;
-  });
+  // タスク一覧本体（Supabaseの`tasks`テーブル＋担当者・サブタスクの結合データから取得）
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasksLoading, setTasksLoading] = useState<boolean>(false);
 
-  // 配色テーマ（9種類）。localStorageの保存値を復元、初回は sage-dark
+  // 配色テーマ（9種類）。これは複数人で共有する必要のない「個人の見た目の好み」なので、
+  // 引き続きこのブラウザのlocalStorageにのみ保存する（Supabase化はしていない）
   const [theme, setTheme] = useState<AppTheme>(() => {
     return (localStorage.getItem('dashboard_theme') as AppTheme) || 'sage-dark';
   });
@@ -121,8 +164,7 @@ export default function App() {
   const [isNotifOpen, setIsNotifOpen] = useState<boolean>(false);
   const notifDropdownRef = useRef<HTMLDivElement>(null);
 
-  // 通知ベルの種類ごとのON/OFF設定。localStorageの保存値を復元し、
-  // 無ければ全種類ONのデフォルトを使う
+  // 通知ベルの種類ごとのON/OFF設定。これも個人の好みなので引き続きlocalStorageに保存する
   const [notificationSettings, setNotificationSettings] = useState<Record<NotificationType, boolean>>(() => {
     const saved = localStorage.getItem('dashboard_notification_settings');
     return saved ? JSON.parse(saved) : defaultNotificationSettings;
@@ -137,16 +179,52 @@ export default function App() {
   // 差し戻し対象のタスクID（差し戻しモーダルの表示・非表示もこのstateで制御）
   const [rejectTargetId, setRejectTargetId] = useState<string | null>(null);
 
-  // ---- 副作用（状態変化に応じた同期処理） ----
+  // ---- Supabaseとのデータ同期 ----
 
-  // tasksが変わるたびにlocalStorageへ永続化
-  useEffect(() => {
-    localStorage.setItem('dashboard_tasks', JSON.stringify(tasks));
-  }, [tasks]);
+  // Supabaseからtasksを担当者・サブタスクごと結合して取得し直す共通関数。
+  // タスクの作成・更新・削除のたびにこれを呼び、「サーバーの最新状態を毎回読み直す」
+  // シンプルな方式にしている（楽観的更新はせず、まずは確実さを優先する設計判断）
+  const refreshTasks = async () => {
+    setTasksLoading(true);
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*, task_assignees(user_id), task_subtasks(id, title, done)')
+      .order('created_at', { ascending: false });
+    setTasksLoading(false);
 
-  // 認証状態が変わるたびにlocalStorageへ永続化
+    if (error) {
+      console.error('タスクの取得に失敗しました:', error);
+      return;
+    }
+    setTasks(((data ?? []) as SupabaseTaskRow[]).map(mapRowToTask));
+  };
+
+  // ログイン状態が変わったら、担当者一覧・タスク一覧を取得し直す
   useEffect(() => {
-    localStorage.setItem('dashboard_auth', String(isAuthenticated));
+    if (!isAuthenticated) {
+      setUsers([]);
+      setTasks([]);
+      return;
+    }
+
+    let cancelled = false;
+    supabase
+      .from('profiles')
+      .select('id, display_name')
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.error('担当者一覧の取得に失敗しました:', error);
+          return;
+        }
+        setUsers((data ?? []).map((p) => ({ id: p.id, name: p.display_name })));
+      });
+
+    refreshTasks();
+
+    return () => {
+      cancelled = true;
+    };
   }, [isAuthenticated]);
 
   // テーマ変更時：localStorageへ保存＋<html>にdata-theme属性を反映（CSS変数切替）。
@@ -190,8 +268,11 @@ export default function App() {
   // カテゴリ絞り込みドロップダウンの選択肢。実際に使われているカテゴリ値から動的生成
   const availableCategories = Array.from(new Set(tasks.map((t) => t.category).filter(Boolean)));
 
+  // 自分のプロフィール（ヘッダーのアバター表示用）
+  const myProfile = users.find((u) => u.id === currentUserId);
+
   // 通知ベルに表示する「自分宛て」のアラート一覧。サーバー通知ではなく、
-  // 現在のtasksデータから毎レンダー時に導出するシンプルな仕組み（バックエンド不要）。
+  // 現在のtasksデータから毎レンダー時に導出するシンプルな仕組み。
   // ①遅延中 ②当日締切 ③自分のタスクが差し戻された ④自分がレビュアーで承認待ち、の4種類。
   // 各種類は設定ページ（SettingsView.tsx）でON/OFFでき、OFFの種類はここで一切生成しない
   const todayStr = getTodayJstDateString();
@@ -220,47 +301,111 @@ export default function App() {
     }
   });
 
-  // ---- タスク操作ハンドラー（子コンポーネントへPropsとして配布） ----
+  // ---- タスク操作ハンドラー（子コンポーネントへPropsとして配布。すべてSupabase経由の非同期処理） ----
 
-  // タスクの新規作成／編集保存。編集中タスクがあれば上書きマージ、無ければ新規追加（先頭に挿入）
-  const handleSaveTask = (taskData: Omit<Task, 'id' | 'status'>) => {
+  // タスクの新規作成／編集保存。
+  // 担当者（task_assignees）・サブタスク（task_subtasks）は、差分計算をせず
+  // 「いったん全削除してから作り直す」方式にしている（認証・DB設計書.md 7章参照）。
+  // 保存後はrefreshTasks()でサーバーの最新状態を読み直す
+  const handleSaveTask = async (taskData: Omit<Task, 'id' | 'status'>) => {
+    const taskRow = {
+      title: taskData.title,
+      description: taskData.description ?? null,
+      category: taskData.category,
+      start_date: taskData.startDate,
+      end_date: taskData.endDate,
+      priority: taskData.priority,
+      // reviewerIdは「候補者がいない」場合にTaskForm側で空文字列('')になり得る。
+      // ''のままだとuuid列への挿入時にPostgres側で「invalid input syntax for type uuid」エラー
+      // （PostgREST経由では400として現れる）になるため、''もnullとして扱う（??ではなく||を使う理由）
+      reviewer_id: taskData.reviewerId || null,
+      return_reason: taskData.returnReason ?? null,
+    };
+
+    let taskId: string;
+
     if (editingTask) {
-      setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...taskData } : t));
+      taskId = editingTask.id;
+      const { error } = await supabase.from('tasks').update(taskRow).eq('id', taskId);
+      if (error) {
+        alert('タスクの更新に失敗しました: ' + error.message);
+        return;
+      }
     } else {
-      const newTask: Task = { ...taskData, id: crypto.randomUUID(), status: 'todo' };
-      setTasks(prev => [newTask, ...prev]);
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert({ ...taskRow, status: 'todo', created_by: currentUserId })
+        .select('id')
+        .single();
+      if (error || !data) {
+        alert('タスクの作成に失敗しました: ' + (error?.message ?? '不明なエラー'));
+        return;
+      }
+      taskId = data.id;
     }
+
+    await supabase.from('task_assignees').delete().eq('task_id', taskId);
+    if (taskData.assignees.length > 0) {
+      await supabase.from('task_assignees').insert(
+        taskData.assignees.map((userId) => ({ task_id: taskId, user_id: userId }))
+      );
+    }
+
+    await supabase.from('task_subtasks').delete().eq('task_id', taskId);
+    if (taskData.subtasks && taskData.subtasks.length > 0) {
+      await supabase.from('task_subtasks').insert(
+        taskData.subtasks.map((s) => ({ task_id: taskId, title: s.title, done: s.done }))
+      );
+    }
+
+    await refreshTasks();
     setIsModalOpen(false);
     setEditingTask(undefined);
   };
 
-  // タスクの削除
-  const handleDeleteTask = (id: string) => {
-    setTasks(prev => prev.filter(task => task.id !== id));
+  // タスクの削除（task_assignees・task_subtasksはon delete cascadeで自動的に一緒に消える）
+  const handleDeleteTask = async (id: string) => {
+    const { error } = await supabase.from('tasks').delete().eq('id', id);
+    if (error) {
+      alert('削除に失敗しました: ' + error.message);
+      return;
+    }
+    await refreshTasks();
   };
 
   // カンバンのドラッグ＆ドロップ等によるステータス変更。
   // doing以外へ移動した場合は差し戻し理由(returnReason)をクリアする
-  const handleUpdateStatus = (id: string, newStatus: Task['status']) => {
-    setTasks(prev => prev.map(task => {
-      if (task.id !== id) return task;
-      return { ...task, status: newStatus, returnReason: newStatus === 'doing' ? task.returnReason : undefined };
-    }));
+  const handleUpdateStatus = async (id: string, newStatus: Task['status']) => {
+    const current = tasks.find((task) => task.id === id);
+    const { error } = await supabase
+      .from('tasks')
+      .update({
+        status: newStatus,
+        return_reason: newStatus === 'doing' ? (current?.returnReason ?? null) : null,
+      })
+      .eq('id', id);
+    if (error) {
+      alert('ステータスの更新に失敗しました: ' + error.message);
+      return;
+    }
+    await refreshTasks();
   };
 
   // 承認申請／承認完了／差し戻しの3アクションをまとめて処理する
-  const handleProcessAction = (id: string, action: 'apply' | 'approve' | 'reject', reason?: string) => {
-    setTasks(prev => prev.map(task => {
-      if (task.id !== id) return task;
-      if (action === 'apply') return { ...task, status: 'review', returnReason: undefined };
-      if (action === 'approve') return { ...task, status: 'done', returnReason: undefined };
-      if (action === 'reject') {
-        // reasonはRejectReasonModal側で必ずtrim済み・非空文字であることを保証済みのため、
-        // ここでのデフォルト文言による補完（フォールバック）は不要（B案対応）
-        return { ...task, status: 'doing', returnReason: reason };
-      }
-      return task;
-    }));
+  const handleProcessAction = async (id: string, action: 'apply' | 'approve' | 'reject', reason?: string) => {
+    // reasonはRejectReasonModal側で必ずtrim済み・非空文字であることを保証済みのため、
+    // ここでのデフォルト文言による補完（フォールバック）は不要（B案対応）
+    const patch =
+      action === 'apply' ? { status: 'review', return_reason: null } :
+      action === 'approve' ? { status: 'done', return_reason: null } :
+      { status: 'doing', return_reason: reason ?? null };
+
+    const { error } = await supabase.from('tasks').update(patch).eq('id', id);
+    if (error) {
+      alert('操作に失敗しました: ' + error.message);
+      return;
+    }
+    await refreshTasks();
   };
 
   // タスクカードクリック等によるタスク編集モーダルの起動
@@ -274,9 +419,9 @@ export default function App() {
   const handleCloseRejectModal = () => setRejectTargetId(null);
 
   // 差し戻し理由モーダルで入力された理由を確定し、対象タスクをdoingへ差し戻す
-  const handleConfirmReject = (reason: string) => {
+  const handleConfirmReject = async (reason: string) => {
     if (rejectTargetId) {
-      handleProcessAction(rejectTargetId, 'reject', reason);
+      await handleProcessAction(rejectTargetId, 'reject', reason);
       handleCloseRejectModal();
     }
   };
@@ -295,14 +440,52 @@ export default function App() {
     setNotificationSettings(prev => ({ ...prev, [type]: !prev[type] }));
   };
 
-  // タスクデータを初期のサンプルタスクにリセットする（設定ページの「データ」セクションから呼ばれる）。
-  // 元に戻せない操作のため、実行前に必ず確認ダイアログを挟む
-  const handleResetSampleData = () => {
+  // ログアウト（設定ページやSidebarのログアウトボタンから呼ばれる）
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  // タスクデータをサンプルタスクにリセットする（設定ページの「データ」セクションから呼ばれる）。
+  // 複数人でタスクを共有する構成に変わったため、「自分が作成したタスクだけ」を削除して
+  // 作り直す（他のユーザーが作成したタスクは削除しない）。元に戻せない操作のため、
+  // 実行前に必ず確認ダイアログを挟む
+  const handleResetSampleData = async () => {
     const confirmed = window.confirm(
-      '現在のタスクデータをすべて削除し、初期のサンプルタスクに戻します。この操作は元に戻せません。よろしいですか？'
+      '自分が作成したタスクをすべて削除し、サンプルタスクを1件作り直します。' +
+      'この操作は元に戻せません（他のユーザーが作成したタスクは削除されません）。よろしいですか？'
     );
     if (!confirmed) return;
-    setTasks(initialTasks);
+
+    const { error: deleteError } = await supabase.from('tasks').delete().eq('created_by', currentUserId);
+    if (deleteError) {
+      alert('リセットに失敗しました: ' + deleteError.message);
+      return;
+    }
+
+    const sample = initialTasks[0];
+    const { data: inserted, error: insertError } = await supabase
+      .from('tasks')
+      .insert({
+        title: sample.title,
+        description: sample.description ?? null,
+        status: sample.status,
+        category: sample.category,
+        start_date: sample.startDate,
+        end_date: sample.endDate,
+        priority: sample.priority,
+        reviewer_id: users.find((u) => u.id !== currentUserId)?.id ?? null,
+        created_by: currentUserId,
+      })
+      .select('id')
+      .single();
+
+    if (insertError || !inserted) {
+      alert('サンプルタスクの作成に失敗しました: ' + (insertError?.message ?? '不明なエラー'));
+      return;
+    }
+
+    await supabase.from('task_assignees').insert({ task_id: inserted.id, user_id: currentUserId });
+    await refreshTasks();
   };
 
   // ヘッダーのテーマ切替メニューに表示するラベル一覧（AppTheme各値 → 表示名）
@@ -312,15 +495,24 @@ export default function App() {
     'lime-dark': 'LIME', 'light': 'LIGHT', 'coffee-dark': 'COFFEE',
   };
 
+  // 初回のセッション確認が終わるまでは、何も出さず待つ（ログイン画面がちらつくのを防ぐ）
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-base text-text-sub text-xs font-bold tracking-widest uppercase">
+        読み込み中…
+      </div>
+    );
+  }
+
   // 未ログイン時はログイン画面のみを表示し、以降のダッシュボードUIは描画しない
   if (!isAuthenticated) {
-    return <Login onLoginSuccess={() => setIsAuthenticated(true)} />;
+    return <Login />;
   }
 
   // ---- ログイン後のメイン画面（サイドバー＋ヘッダー＋フィルターバー＋メインビュー） ----
   return (
     <div className="flex h-screen w-screen bg-base text-text-main font-sans transition-colors duration-300 overflow-hidden relative">
-      
+
       {/* 左側：サイドバーメニュー */}
       <div className={`fixed md:sticky top-0 bottom-0 z-50 h-full transition-transform duration-300 md:translate-x-0 ${
         isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:w-20'
@@ -330,7 +522,7 @@ export default function App() {
           onViewChange={handleViewChange}
           isOpen={isSidebarOpen}
           onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-          onLogout={() => setIsAuthenticated(false)}
+          onLogout={handleLogout}
           onOpenSettings={() => handleViewChange('settings')}
         />
       </div>
@@ -342,7 +534,7 @@ export default function App() {
 
       {/* 右側：メインコンテンツ領域 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
-        
+
         {/* 共通グローバルヘッダー */}
         <header className="h-16 border-b border-border-card px-4 md:px-8 flex items-center justify-between bg-card/30 backdrop-blur-md flex-shrink-0 z-30 select-none">
           <div className="flex items-center gap-1.5 sm:gap-2 md:gap-4">
@@ -428,9 +620,9 @@ export default function App() {
               </svg>
             </button>
 
-            {/* アバター */}
-            <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-border-card border border-accent/30 flex items-center justify-center font-bold text-[8px] md:text-[10px] flex-shrink-0">
-              自分
+            {/* アバター：自分のprofiles.display_nameの先頭2文字を表示（未取得時は空欄） */}
+            <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-border-card border border-accent/30 flex items-center justify-center font-bold text-[8px] md:text-[10px] flex-shrink-0" title={myProfile?.name}>
+              {myProfile ? myProfile.name.slice(0, 2) : ''}
             </div>
           </div>
         </header>
@@ -450,7 +642,7 @@ export default function App() {
                 className="bg-card border border-border-card/80 text-[11px] font-bold rounded-lg px-2.5 py-1 text-text-main focus:outline-none focus:border-accent cursor-pointer"
               >
                 <option value="all">全員の一覧</option>
-                {mockUsers.map(user => (
+                {users.map(user => (
                   <option key={user.id} value={user.id}>{user.name}</option>
                 ))}
               </select>
@@ -494,15 +686,17 @@ export default function App() {
         </div>
 
         {/* メインビュー領域（独立スクロール）
-            以前は h-[calc(100vh-108px)] という固定値で高さを計算していたが、
-            フィルターバーがスマホ幅で2行に折り返す等、上部の実際の高さが変わる
-            ケースに追従できなかった。flex-1 + min-h-0 にすることで、ヘッダーや
-            フィルターバーの実際の高さに関わらず、残り領域を正しく埋めるようにした */}
+            高さは h-[calc(...)] のような固定値ではなく flex-1 + min-h-0 で計算しており、
+            ヘッダーやフィルターバーの実際の高さ（スマホ幅で折り返して増える等）に
+            関わらず、残り領域を正しく埋める */}
         <main className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 bg-base/50">
           <div className="max-w-7xl mx-auto w-full h-full">
+            {tasksLoading && tasks.length === 0 && (
+              <p className="text-[11px] text-text-sub font-bold tracking-wider mb-4">タスクを読み込み中…</p>
+            )}
             {currentView === 'dashboard' ? (
               <div className="animate-fade-in pb-8">
-                <DashboardView tasks={tasks} users={mockUsers} filterUser={filterUser} filterCategory={filterCategory} filterPriority={filterPriority} />
+                <DashboardView tasks={tasks} users={users} filterUser={filterUser} filterCategory={filterCategory} filterPriority={filterPriority} />
               </div>
             ) : currentView === 'tasks' ? (
               <div className="space-y-6 animate-fade-in pb-8">
@@ -548,12 +742,13 @@ export default function App() {
         </main>
       </div>
 
-      <TaskForm 
-        isOpen={isModalOpen} 
-        editingTask={editingTask} 
-        onClose={() => { setIsModalOpen(false); setEditingTask(undefined); }} 
-        onAddTask={handleSaveTask} 
-        users={mockUsers} 
+      <TaskForm
+        isOpen={isModalOpen}
+        editingTask={editingTask}
+        onClose={() => { setIsModalOpen(false); setEditingTask(undefined); }}
+        onAddTask={handleSaveTask}
+        users={users}
+        currentUserId={currentUserId}
       />
       {/* 一番底に新設モーダルをマウント（設定は独立したページになったため、ここにはマウントしない） */}
       <RejectReasonModal

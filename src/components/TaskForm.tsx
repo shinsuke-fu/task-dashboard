@@ -14,12 +14,11 @@
  *      （承認フローには関与しない、担当者向けの簡易メモという位置づけ）
  *   5. 送信時にonAddTaskを呼び出し、実際の保存処理はApp.tsx側に委譲
  *
- * 【現状の制約（暫定）】
- *   ・currentUserId は 'u1' に固定されている。ログイン機能の実装後は、
- *     実際にログイン中のユーザーIDに置き換える必要がある。
- *   ・担当者はUI上は複数選択できるが、データはlocalStorage内（この端末・
- *     このブラウザ内）にしか保存されないため、他ユーザーへの実際の
- *     共有・通知はまだ行われない。認証・DBバックエンド導入後に対応予定。
+ * 【Supabase移行後の変更】
+ *   ・currentUserId はApp.tsx側（Supabaseの認証セッション）からpropとして
+ *     受け取る形に変更。このコンポーネント内でのハードコードは廃止した。
+ *   ・担当者・確認者のデータはSupabase（task_assignees / tasksテーブル）に
+ *     保存され、他ユーザーとも共有される。
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect } from 'react';
@@ -30,25 +29,25 @@ interface TaskFormProps {
   isOpen: boolean;
   editingTask?: Task;
   users: User[];
+  currentUserId: string;
   onClose: () => void;
   onAddTask: (task: Omit<Task, 'id' | 'status'>) => void;
 }
 
-export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTask }: TaskFormProps) {
+export default function TaskForm({ isOpen, editingTask, users, currentUserId, onClose, onAddTask }: TaskFormProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<'開発' | 'デザイン' | 'マーケ' | 'その他'>('開発');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [endDate, setEndDate] = useState('');
-  
-  // ログインユーザー本人のID（現状は仮でu1固定。将来はログイン機能から取得）
-  const currentUserId = 'u1';
 
   // 作業担当者（複数選択可）。新規作成時は自分のみを選択した状態を初期値とする
   const [assigneeIds, setAssigneeIds] = useState<string[]>([currentUserId]);
 
-  // 確認者（レビュアー）を管理するステート（デフォルトは山田: u2）
-  const [reviewerId, setReviewerId] = useState<string>('u2');
+  // 確認者（レビュアー）を管理するステート（デフォルトは自分以外の先頭ユーザー）
+  const [reviewerId, setReviewerId] = useState<string>(
+    users.find((u) => u.id !== currentUserId)?.id ?? ''
+  );
 
   // サブタスク（チェックリスト）。承認フローとは独立した、担当者向けの簡易メモ
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
@@ -72,8 +71,8 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
           ? editingTask.assignees
           : [currentUserId]
       );
-      // 既存タスクに確認者が設定されていればそれをセット
-      setReviewerId(editingTask.reviewerId || 'u2');
+      // 既存タスクに確認者が設定されていればそれをセット（無ければ自分以外の先頭ユーザー）
+      setReviewerId(editingTask.reviewerId || users.find((u) => u.id !== currentUserId)?.id || '');
       // 既存タスクのサブタスクをセット（無ければ空リスト）
       setSubtasks(editingTask.subtasks || []);
     } else {
@@ -83,11 +82,12 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
       setPriority('medium');
       setEndDate(getTodayJstDateString()); // 期日の初期値は「今日」（JST基準）
       setAssigneeIds([currentUserId]); // 担当者初期値：自分のみ
-      setReviewerId('u2'); // デフォルト確認者
+      setReviewerId(users.find((u) => u.id !== currentUserId)?.id ?? ''); // デフォルト確認者：自分以外の先頭ユーザー
       setSubtasks([]); // サブタスクは空から開始
     }
     setNewSubtaskTitle(''); // 入力欄は常にリセット
-  }, [isOpen]); // 依存配列を isOpen のみに絞ることで、送信時の逆流リセットバグを完全消滅させます
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]); // 依存配列を isOpen のみに絞ることで、送信時の逆流リセットバグを完全消滅させます（currentUserId/usersは意図的に含めない）
 
   // 担当者チェックボックスの選択・解除を切り替える。
   // 担当者は最低1人必須のため、残り1人の状態からの解除操作は無視する
@@ -134,8 +134,8 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
   // 担当者に選ばれていないユーザーのみを確認者（レビュアー）候補として抽出
   // （自分で自分の作業を承認できてしまう状態を防ぐため）
   // 既知の制約：全ユーザーを担当者に選んだ場合、確認者の候補が0人になる。
-  // 現状はモックユーザーが3人のみのため起こり得るが、実際のユーザー登録・
-  // ログイン機能の実装時に候補ゼロを防ぐ制御を合わせて検討する想定。
+  // 登録ユーザー数が少ないうちは起こり得るため、将来的には候補ゼロを防ぐ
+  // 制御（例：最低1人は担当者から除外させる等）を検討する想定。
   const reviewerCandidates = users.filter(user => !assigneeIds.includes(user.id));
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -281,7 +281,7 @@ export default function TaskForm({ isOpen, editingTask, users, onClose, onAddTas
               })}
             </div>
             <p className="text-[10px] text-text-sub mt-1.5 pl-1 font-medium">
-              ※現在はこの端末（ブラウザ）内のみに保存される個人用データのため、他ユーザーへの実際のタスク共有はまだ行われません。ログイン・アカウント機能の実装後、他ユーザーへの割り当てが実際に反映される予定です。
+              ※選択した担当者にはSupabase上でタスクが共有されます（保存時にtask_assigneesテーブルへ反映）。
             </p>
           </div>
 

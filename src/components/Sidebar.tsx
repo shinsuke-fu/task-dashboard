@@ -171,7 +171,7 @@ export default function Sidebar({
         </div>
 
         <div className="text-center overflow-hidden whitespace-nowrap text-text-sub text-[9px] font-bold tracking-widest pt-1">
-          {isOpen ? 'バージョン 1.0.0（社内版）' : 'v1.0'}
+          {isOpen ? 'バージョン 1.0.0（β版）' : 'v1.0'}
         </div>
       </div>
     </aside>
