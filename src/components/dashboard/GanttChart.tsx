@@ -22,11 +22,9 @@ import { getTodayJstDateString } from '../../utils/date';
 interface GanttChartProps {
   tasks: Task[];
   users: User[];
-  filterUser: string;
-  filterCategory: string;
 }
 
-export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users, filterUser, filterCategory }) => {
+export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users }) => {
 
   // 今日（JST基準）を基準に、2日前〜4日後の合計7日分のマス目情報を生成する
   const getTimelineDays = () => {

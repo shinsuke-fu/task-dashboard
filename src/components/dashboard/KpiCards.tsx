@@ -16,10 +16,9 @@ import { getTodayJstDateString } from '../../utils/date';
 
 interface KpiCardsProps {
   filteredTasks: Task[];
-  totalTasksCount: number; // フィルター変化に関わらず分母を一定に保つための総数
 }
 
-export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks, totalTasksCount }) => {
+export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks }) => {
   const currentTotal = filteredTasks.length;
   const doneCount = filteredTasks.filter(t => t.status === 'done').length;
   const reviewCount = filteredTasks.filter(t => t.status === 'review').length;

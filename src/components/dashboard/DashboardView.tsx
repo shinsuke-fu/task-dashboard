@@ -45,14 +45,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 重複していた独自の高機能フィルターバーは完全撤去済み */}
 
       {/* ＝ KPI SUMMARY CARDS ＝ */}
-      {/* 絞り込まれた displayTasks と、全タスク件数カウンター用の tasks をバインド */}
-      <KpiCards filteredTasks={displayTasks} totalTasksCount={tasks.length} />
+      {/* 絞り込まれた displayTasks をバインド（totalTasksCountは未使用のため廃止済み） */}
+      <KpiCards filteredTasks={displayTasks} />
 
       {/* ＝ VISUALIZATION GRIDS ＝ */}
       <ProgressChart tasks={displayTasks} users={users} />
 
       {/* ＝ TIMELINE MATRIX ＝ */}
-      <GanttChart tasks={displayTasks} users={users} filterUser={filterUser} filterCategory={filterCategory} />
+      <GanttChart tasks={displayTasks} users={users} />
       
     </div>
   );
