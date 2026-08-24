@@ -106,7 +106,7 @@ export const Login: React.FC = () => {
   // 新規登録直後：確認メール送信済みの案内画面
   if (signupEmailSent) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4">
+      <div className="flex min-h-dvh items-center justify-center bg-zinc-950 px-4">
         <div className="w-full max-w-sm rounded-2xl border border-zinc-900 bg-zinc-900/30 p-8 backdrop-blur-xl shadow-2xl text-center">
           <div className="h-9 w-9 mx-auto rounded-xl border border-zinc-800 bg-zinc-950 flex items-center justify-center mb-4">
             <div className="h-3 w-3 rounded-sm bg-white" />
@@ -131,7 +131,7 @@ export const Login: React.FC = () => {
   // パスワード再設定メール送信直後の案内画面
   if (resetEmailSent) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4">
+      <div className="flex min-h-dvh items-center justify-center bg-zinc-950 px-4">
         <div className="w-full max-w-sm rounded-2xl border border-zinc-900 bg-zinc-900/30 p-8 backdrop-blur-xl shadow-2xl text-center">
           <div className="h-9 w-9 mx-auto rounded-xl border border-zinc-800 bg-zinc-950 flex items-center justify-center mb-4">
             <div className="h-3 w-3 rounded-sm bg-white" />
@@ -155,7 +155,7 @@ export const Login: React.FC = () => {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-zinc-950 px-4">
       <div className="w-full max-w-sm rounded-2xl border border-zinc-900 bg-zinc-900/30 p-8 backdrop-blur-xl shadow-2xl">
         <div className="flex flex-col items-center justify-center text-center mb-8">
           <div className="h-9 w-9 rounded-xl border border-zinc-800 bg-zinc-950 flex items-center justify-center mb-3">

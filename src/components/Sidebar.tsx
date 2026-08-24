@@ -76,7 +76,7 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`bg-card border-r border-border-card flex flex-col justify-between min-h-screen sticky top-0 transition-all duration-300 ease-in-out select-none ${
+      className={`bg-card border-r border-border-card flex flex-col justify-between min-h-dvh sticky top-0 transition-all duration-300 ease-in-out select-none ${
         isOpen ? 'w-64' : 'w-20'
       }`}
     >

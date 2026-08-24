@@ -122,6 +122,7 @@ export default function KanbanBoard({
                     task={task}
                     currentUserId={currentUserId}
                     onStartEdit={onStartEdit}
+                    onUpdateStatus={onUpdateStatus}
                     onProcessAction={onProcessAction}
                     onTriggerReject={onTriggerReject}
                     onDeleteTask={onDeleteTask}
