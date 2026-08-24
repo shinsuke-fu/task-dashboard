@@ -11,7 +11,9 @@
  *   2. 規約③「遅延最優先ルール」に従い、遅延 > 期日間近 > 差し戻し中の
  *      優先順位で枠線・背景スタイルを決定（他状態のUIで上書きしない）
  *   3. ステータスに応じたアクションボタンを出し分け
- *      （doing→承認申請 / review→差し戻し・承認完了 / 常に削除）
+ *      （doing→承認申請 / review→差し戻し・承認完了 / 常に削除）。
+ *      差し戻し・承認完了は「押すべき人」＝そのタスクのreviewerId本人にしか
+ *      表示しない（他の人には代わりに現在の状態を示す文言を出す）
  *   4. サブタスクがあれば「完了数/総数」の進捗バッジを表示する
  *      （チェックの切替はこのカード上では行わず、編集モーダルで行う）
  * -----------------------------------------------------------------------
@@ -25,6 +27,7 @@ const priorityLabels: Record<TaskPriority, string> = { high: '高', medium: '中
 
 interface TaskCardProps {
   task: Task;
+  currentUserId: string;
   onStartEdit: (task: Task) => void;
   onProcessAction: (id: string, action: 'apply' | 'approve' | 'reject', reason?: string) => void;
   onTriggerReject: (id: string) => void;
@@ -33,11 +36,14 @@ interface TaskCardProps {
 
 export const TaskCard: React.FC<TaskCardProps> = ({
   task,
+  currentUserId,
   onStartEdit,
   onProcessAction,
   onTriggerReject,
   onDeleteTask,
 }) => {
+  // 差し戻し・承認完了は、そのタスクの確認者（reviewerId）本人だけが操作できる
+  const isReviewer = task.reviewerId !== undefined && task.reviewerId === currentUserId;
   // --- 完了(done)以外は、承認待ち(review)であっても期日超過なら一律で遅延判定に変えます ---
   // 今日と期日の差分日数を、タイムゾーンに依存しない共通関数で算出（毎レンダー時に再計算されるため、
   // taskの期日が変わって再レンダーされれば必ず最新の値になる）
@@ -151,18 +157,25 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             </button>
           )}
           {task.status === 'review' && (
-            <>
-              <button 
-                onClick={() => onTriggerReject(task.id)} 
-                className="px-2 py-0.5 bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white font-bold rounded text-[9px] cursor-pointer transition"
-              >
-                差し戻し
-              </button>
-              
-              <button onClick={() => onProcessAction(task.id, 'approve')} className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-slate-950 font-bold rounded text-[9px] cursor-pointer transition">
-                承認完了
-              </button>
-            </>
+            isReviewer ? (
+              <>
+                <button
+                  onClick={() => onTriggerReject(task.id)}
+                  className="px-2 py-0.5 bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white font-bold rounded text-[9px] cursor-pointer transition"
+                >
+                  差し戻し
+                </button>
+
+                <button onClick={() => onProcessAction(task.id, 'approve')} className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-slate-950 font-bold rounded text-[9px] cursor-pointer transition">
+                  承認完了
+                </button>
+              </>
+            ) : (
+              // 確認者本人以外には操作ボタンを出さず、代わりに今の状態だけ伝える
+              <span className="px-2 py-0.5 text-text-sub font-bold rounded text-[9px] bg-base border border-border-card">
+                確認者の承認待ち
+              </span>
+            )
           )}
           <button onClick={() => onDeleteTask(task.id)} className="text-text-sub hover:text-rose-400 px-1 py-0.5 transition opacity-0 group-hover:opacity-100 cursor-pointer">
             削除

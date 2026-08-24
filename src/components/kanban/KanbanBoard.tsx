@@ -9,7 +9,10 @@
  *   1. tasksを共通フィルター（filterTasks）で担当者・カテゴリ・優先度を絞り込み、
  *      さらにcolumn.id（ステータス）ごとに振り分けて表示
  *   2. ドラッグ＆ドロップでのステータス変更を処理。
- *      review → doing への移動だけは特別扱いし、差し戻し理由モーダルを起動する
+ *      review → doing への移動だけは特別扱いし、差し戻し理由モーダルを起動する。
+ *      また、review状態からの移動（差し戻し・承認完了に相当）は、TaskCard.tsxの
+ *      ボタンと同じく確認者（reviewerId）本人にしか許可しない
+ *      （ドラッグ＆ドロップがボタンの権限チェックを迂回する抜け道にならないようにする）
  * -----------------------------------------------------------------------
  */
 import { useState, useMemo } from 'react';
@@ -19,6 +22,7 @@ import { filterTasks } from '../../utils/assignee';
 
 interface KanbanBoardProps {
   tasks: Task[];
+  currentUserId: string;
   filterUser: string;
   filterCategory: string;
   filterPriority: string;
@@ -31,6 +35,7 @@ interface KanbanBoardProps {
 
 export default function KanbanBoard({
   tasks,
+  currentUserId,
   filterUser,
   filterCategory,
   filterPriority,
@@ -63,8 +68,16 @@ export default function KanbanBoard({
     if (!taskId) return;
 
     const draggedTask = tasks.find(t => t.id === taskId);
-    
-    if (draggedTask && draggedTask.status === 'review' && targetStatus === 'doing') {
+    if (!draggedTask) return;
+
+    // review状態からの移動（差し戻し・承認完了に相当）は確認者本人のみ許可。
+    // ボタンでの操作と権限ルールを揃え、ドラッグ＆ドロップが抜け道にならないようにする
+    if (draggedTask.status === 'review' && targetStatus !== 'review' && draggedTask.reviewerId !== currentUserId) {
+      alert('このタスクは確認者のみ操作できます。');
+      return;
+    }
+
+    if (draggedTask.status === 'review' && targetStatus === 'doing') {
       onTriggerReject(taskId); // 差し戻しモーダルを起動
     } else {
       onUpdateStatus(taskId, targetStatus); // 通常の移動
@@ -107,6 +120,7 @@ export default function KanbanBoard({
                   <TaskCard
                     key={task.id}
                     task={task}
+                    currentUserId={currentUserId}
                     onStartEdit={onStartEdit}
                     onProcessAction={onProcessAction}
                     onTriggerReject={onTriggerReject}

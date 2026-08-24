@@ -45,6 +45,7 @@ import { DashboardView } from './components/dashboard/DashboardView';
 import { ScheduleView } from './components/schedule/ScheduleView';
 import { SettingsView } from './components/settings/SettingsView';
 import { Login } from './pages/Login';
+import { ResetPassword } from './pages/ResetPassword';
 import { RejectReasonModal } from './components/RejectReasonModal';
 import { getTodayJstDateString } from './utils/date';
 
@@ -122,14 +123,26 @@ export default function App() {
   // 初回のセッション確認が終わるまでは、ログイン画面を一瞬出さないようにするためのフラグ
   const [authLoading, setAuthLoading] = useState<boolean>(true);
 
+  // パスワード再設定メールのリンクを踏んだ直後かどうか。trueの間は、ログイン後でも
+  // 通常のダッシュボードではなく「新しいパスワードを入力する」画面（ResetPassword.tsx）を
+  // 優先して表示する（下記の画面出し分けを参照）
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(false);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthLoading(false);
     });
-    // ログイン・ログアウト・トークン更新などのセッション変化を購読し続ける
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    // ログイン・ログアウト・トークン更新などのセッション変化を購読し続ける。
+    // パスワード再設定メールのリンクをクリックすると、Supabaseが自動的にURL内の
+    // トークンを検知して一時セッションを確立し、ここに'PASSWORD_RECOVERY'イベントが
+    // 届く（このタイミングではsessionはすでに存在するが、まだ新しいパスワードは
+    // 設定されていない状態）
+    const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true);
+      }
     });
     return () => listener.subscription.unsubscribe();
   }, []);
@@ -225,6 +238,20 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+  }, [isAuthenticated]);
+
+  // 他ユーザーの操作（例：別アカウントが承認申請してreview状態にした等）にリアルタイムに
+  // 反応する仕組み（Supabase Realtimeのsubscribe等）はまだ導入していないため、画面を開きっ
+  // ぱなしにしていると、他ユーザー側の変更は自分の手元のtasksには自動反映されない
+  // （＝確認者アカウントの通知ベルが更新されない、という形で症状が出る）。
+  // 本格的な対応（Realtime導入）は別途行う想定だが、暫定策として一定間隔でタスク一覧を
+  // ポーリングし直し、通知やカンバン表示がある程度追従するようにしている
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const intervalId = setInterval(() => {
+      refreshTasks();
+    }, 20000); // 20秒間隔（頻度を上げすぎるとAPI呼び出しが増えるため、通知用途としてはこの程度で妥協）
+    return () => clearInterval(intervalId);
   }, [isAuthenticated]);
 
   // テーマ変更時：localStorageへ保存＋<html>にdata-theme属性を反映（CSS変数切替）。
@@ -363,11 +390,20 @@ export default function App() {
     setEditingTask(undefined);
   };
 
-  // タスクの削除（task_assignees・task_subtasksはon delete cascadeで自動的に一緒に消える）
+  // タスクの削除（task_assignees・task_subtasksはon delete cascadeで自動的に一緒に消える）。
+  // RLSポリシー上、削除は作成者(created_by)のみ可能（認証・DB設計書.md5章）。ただしTaskCard.tsxの
+  // 削除ボタンは誰のタスクでも表示されるため、他人のタスクを削除しようとした場合、Supabase側は
+  // エラーを返さず「0件削除」で成功扱いになる（RLSが対象行を除外するだけのため）。
+  // それをそのままrefreshTasks()すると、ユーザーには「削除ボタンを押したのに何も起きない」
+  // という原因不明の挙動に見えてしまうため、削除件数を明示的に確認し、0件のときは理由を伝える
   const handleDeleteTask = async (id: string) => {
-    const { error } = await supabase.from('tasks').delete().eq('id', id);
+    const { error, count } = await supabase.from('tasks').delete({ count: 'exact' }).eq('id', id);
     if (error) {
       alert('削除に失敗しました: ' + error.message);
+      return;
+    }
+    if (count === 0) {
+      alert('このタスクは削除できません（作成者のみ削除できます）。');
       return;
     }
     await refreshTasks();
@@ -502,6 +538,13 @@ export default function App() {
         読み込み中…
       </div>
     );
+  }
+
+  // パスワード再設定メールのリンクを踏んだ直後は、認証済み（一時セッション）であっても
+  // 通常のダッシュボードへは進ませず、新しいパスワードの入力画面を優先して表示する。
+  // 更新が完了したらonDoneでこのフラグをfalseに戻し、通常のダッシュボードへ進む
+  if (isPasswordRecovery) {
+    return <ResetPassword onDone={() => setIsPasswordRecovery(false)} />;
   }
 
   // 未ログイン時はログイン画面のみを表示し、以降のダッシュボードUIは描画しない
@@ -702,6 +745,7 @@ export default function App() {
               <div className="space-y-6 animate-fade-in pb-8">
                 <KanbanBoard
                   tasks={tasks}
+                  currentUserId={currentUserId}
                   filterUser={filterUser}
                   filterCategory={filterCategory}
                   filterPriority={filterPriority}

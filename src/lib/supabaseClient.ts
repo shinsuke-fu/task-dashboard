@@ -29,4 +29,15 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// 【キャッシュ対策】
+// ブラウザ（またはfetchの既定動作）が、同一URL・同一クエリへのGETリクエスト（例：タスク一覧の
+// 再取得）を「新しいデータ」ではなく直前のレスポンスのキャッシュとして返してしまうことがある。
+// この場合、保存操作後にrefreshTasks()を呼んでもUIには古いデータが表示され続け、ブラウザを
+// 手動リロードして初めて最新化される、という不具合が起きる（サブタスク進捗バッジ等で確認）。
+// これを避けるため、Supabaseクライアントが内部で使うfetchをラップし、常に
+// キャッシュを使わず必ずネットワークへ問い合わせる（cache: 'no-store'）ようにしている。
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  global: {
+    fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
+  },
+});

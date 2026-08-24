@@ -202,7 +202,18 @@ export default function TaskForm({ isOpen, editingTask, users, currentUserId, on
             {subtasks.length > 0 && (
               <div className="space-y-1.5 mb-2">
                 {subtasks.map((sub) => (
-                  <div key={sub.id} className="flex items-center gap-2 bg-base border border-border-card rounded-lg px-2.5 h-8">
+                  // 行全体をクリックしてもチェックを切り替えられるようにする（チェックボックス自体への
+                  // クリックはネイティブのonChangeと二重発火してしまうため、行のonClickでは
+                  // input[type=checkbox]上でのクリックだけ除外する）。削除ボタンはstopPropagationで
+                  // 行のトグルに巻き込まれないようにする
+                  <div
+                    key={sub.id}
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).tagName === 'INPUT') return;
+                      handleToggleSubtask(sub.id);
+                    }}
+                    className="flex items-center gap-2 bg-base border border-border-card rounded-lg px-2.5 h-8 cursor-pointer"
+                  >
                     <input
                       type="checkbox"
                       checked={sub.done}
@@ -214,7 +225,10 @@ export default function TaskForm({ isOpen, editingTask, users, currentUserId, on
                     </span>
                     <button
                       type="button"
-                      onClick={() => handleRemoveSubtask(sub.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveSubtask(sub.id);
+                      }}
                       className="text-text-sub hover:text-rose-400 transition cursor-pointer flex-shrink-0 text-[10px] px-1"
                     >
                       削除
