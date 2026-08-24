@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# 環境変数（Supabaseの接続情報などの値。.env.exampleはコミットしてよい）
+.env
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
