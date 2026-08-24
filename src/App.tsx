@@ -534,7 +534,9 @@ export default function App() {
   // 初回のセッション確認が終わるまでは、何も出さず待つ（ログイン画面がちらつくのを防ぐ）
   if (authLoading) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-base text-text-sub text-xs font-bold tracking-widest uppercase">
+      {/* h-dvh/w-dvw：iOS Safariのアドレスバー分だけ100vhが実際の表示領域より大きくなり、
+          下端が隠れたりスクロール挙動がおかしくなる不具合対策（100vhではなく動的ビューポート単位を使う） */}
+      <div className="flex h-dvh w-dvw items-center justify-center bg-base text-text-sub text-xs font-bold tracking-widest uppercase">
         読み込み中…
       </div>
     );
@@ -554,7 +556,8 @@ export default function App() {
 
   // ---- ログイン後のメイン画面（サイドバー＋ヘッダー＋フィルターバー＋メインビュー） ----
   return (
-    <div className="flex h-screen w-screen bg-base text-text-main font-sans transition-colors duration-300 overflow-hidden relative">
+    {/* h-dvh/w-dvw：同上（iOS Safariのアドレスバー分のズレ対策） */}
+    <div className="flex h-dvh w-dvw bg-base text-text-main font-sans transition-colors duration-300 overflow-hidden relative">
 
       {/* 左側：サイドバーメニュー */}
       <div className={`fixed md:sticky top-0 bottom-0 z-50 h-full transition-transform duration-300 md:translate-x-0 ${

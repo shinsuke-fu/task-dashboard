@@ -11,15 +11,18 @@
  *   2. 規約③「遅延最優先ルール」に従い、遅延 > 期日間近 > 差し戻し中の
  *      優先順位で枠線・背景スタイルを決定（他状態のUIで上書きしない）
  *   3. ステータスに応じたアクションボタンを出し分け
- *      （doing→承認申請 / review→差し戻し・承認完了 / 常に削除）。
+ *      （todo→着手する / doing→承認申請 / review→差し戻し・承認完了 / 常に削除）。
  *      差し戻し・承認完了は「押すべき人」＝そのタスクのreviewerId本人にしか
- *      表示しない（他の人には代わりに現在の状態を示す文言を出す）
+ *      表示しない（他の人には代わりに現在の状態を示す文言を出す）。
+ *      「着手する」ボタンは、カード自体のドラッグ＆ドロップ（HTML5のnative D&D、
+ *      iOS Safari等のタッチ環境では動作しない）に頼らずにtodo→doingへ進める
+ *      ための明示的な代替手段（スマホ実機で発見された不具合への対応）
  *   4. サブタスクがあれば「完了数/総数」の進捗バッジを表示する
  *      （チェックの切替はこのカード上では行わず、編集モーダルで行う）
  * -----------------------------------------------------------------------
  */
 import React from 'react';
-import type { Task, TaskPriority } from '../../types/task';
+import type { Task, TaskPriority, TaskStatus } from '../../types/task';
 import { getDaysDiffFromToday } from '../../utils/date';
 
 // 優先度の表示ラベル（TaskForm.tsxの選択肢と表記を統一）
@@ -29,6 +32,7 @@ interface TaskCardProps {
   task: Task;
   currentUserId: string;
   onStartEdit: (task: Task) => void;
+  onUpdateStatus: (id: string, newStatus: TaskStatus) => void;
   onProcessAction: (id: string, action: 'apply' | 'approve' | 'reject', reason?: string) => void;
   onTriggerReject: (id: string) => void;
   onDeleteTask: (id: string) => void;
@@ -38,6 +42,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   task,
   currentUserId,
   onStartEdit,
+  onUpdateStatus,
   onProcessAction,
   onTriggerReject,
   onDeleteTask,
@@ -151,6 +156,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </div>
         
         <div className="flex gap-1.5">
+          {task.status === 'todo' && (
+            <button onClick={() => onUpdateStatus(task.id, 'doing')} className="px-2 py-0.5 bg-accent/10 hover:bg-accent text-accent hover:text-slate-950 font-bold rounded text-[9px] cursor-pointer transition">
+              着手する
+            </button>
+          )}
           {task.status === 'doing' && (
             <button onClick={() => onProcessAction(task.id, 'apply')} className="px-2 py-0.5 bg-accent/10 hover:bg-accent text-accent hover:text-slate-950 font-bold rounded text-[9px] cursor-pointer transition">
               承認申請
@@ -177,7 +187,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               </span>
             )
           )}
-          <button onClick={() => onDeleteTask(task.id)} className="text-text-sub hover:text-rose-400 px-1 py-0.5 transition opacity-0 group-hover:opacity-100 cursor-pointer">
+          {/* デスクトップはhoverで表示（従来通り）、タッチ操作ではhoverが安定して効かないため
+              スマホ幅では常時表示にする */}
+          <button onClick={() => onDeleteTask(task.id)} className="text-text-sub hover:text-rose-400 px-1 py-0.5 transition opacity-100 md:opacity-0 md:group-hover:opacity-100 cursor-pointer">
             削除
           </button>
         </div>
