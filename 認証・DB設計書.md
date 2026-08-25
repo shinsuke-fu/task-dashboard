@@ -8,13 +8,19 @@
 
 作成日：2026-08-20
 確定日：2026-08-20（4点の要確認事項に回答をもらい、内容を確定）
-更新日：2026-08-22（この設計書の確定後に追加された「スケジュール画面」「サブタスク
-〈チェックリスト〉機能」を反映。サブタスク用に4.4`task_subtasks`テーブルを新設し、
-5章にそのRLSポリシーを追加。スケジュール画面自体は既存の`tasks.end_date`列をそのまま
-使うため新しいテーブルは不要だが、カレンダー表示のクエリを想定した索引〈4.5〉を追加）
-更新日：2026-08-23（8章の実装ステップ1〜4〈Supabaseプロジェクト作成〜App.tsx非同期化〉を
-実装完了。ユーザー自身の実機でサインアップ・サインイン・タスク新規作成までの動作確認済み。
-実装時に判明した追加のRLSポリシー・実際に発生した不具合と対処などを10章に追記）
+
+### 更新履歴
+
+- 2026-08-22：「スケジュール画面」「サブタスク（チェックリスト）機能」を反映。サブタスク用に
+  4.4`task_subtasks`テーブルを新設し、5章にそのRLSポリシーを追加。スケジュール画面自体は
+  既存の`tasks.end_date`列をそのまま使うため新しいテーブルは不要だが、カレンダー表示の
+  クエリを想定した索引（4.5）を追加
+- 2026-08-23：8章の実装ステップ1〜4（Supabaseプロジェクト作成〜App.tsx非同期化）を実装完了。
+  実機でサインアップ・サインイン・タスク新規作成までの動作確認済み。実装時に判明した追加の
+  RLSポリシー・実際に発生した不具合と対処などを10章に追記
+- 2026-08-25：プロフィール機能（表示名編集・アバター画像アップロード）用の`profiles.avatar_url`
+  列と`avatars`ストレージバケットを追加（4.1・4.6）。退会（アカウント削除）機能用の
+  `delete_own_account`関数を追加（4.7）
 
 ---
 
@@ -24,7 +30,7 @@
   ユーザー間の実共有）
 - 対象外：③（サイドバーの新規タブ機能のうち「プロジェクト管理」）は今回スコープ外です。
   まず④で「複数人が実際にログインして同じタスクを共有できる」状態を作り切ってから、
-  ③の残りの機能を都度設計・追加していく方針で進めます（ユーザーとの合意事項）。
+  ③の残りの機能を都度設計・追加していく方針とします。
   なお「スケジュール」タブは2026-08-22時点で③のうち実装済みとなっており、既存の
   `tasks.end_date`列を読むだけの画面のため、この設計書のスキーマに影響はありません（4.5参照）。
 - そのため、これから設計するデータベースのスキーマ（テーブル構成）は、**現状の`仕様書.md`に
@@ -37,8 +43,7 @@
 
 ## 1. なぜSupabase（PostgreSQL）を選ぶか
 
-「MySQLの方がいいのでは？」という質問への回答も兼ねて、比較をまとめます（2026年8月時点で
-調べ直した内容です）。
+MySQL系サービスとの比較を、2026年8月時点であらためて調べた内容としてまとめます。
 
 ### 1.1 コスト面の比較
 
@@ -145,12 +150,17 @@ Supabase Authは`auth.users`という認証専用のテーブルを内部で管�
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null,
+  avatar_url text,
   created_at timestamptz default now()
 );
 ```
 
 新規登録時に自動で`profiles`に1行作られるよう、DB側の「トリガー」という仕組みで
 `auth.users`への追加をフックします（実装時に用意します）。
+
+`avatar_url`列は当初のスキーマには無く、プロフィール機能（表示名編集・アバター画像アップロード）の
+追加にあわせて`supabase-migration-profile.sql`で後から追加した列です。アバター画像本体の
+保存先（Storageバケット）については4.6を参照してください。
 
 ### 4.2 `tasks`（タスク本体）
 
@@ -227,6 +237,53 @@ create index idx_tasks_end_date on tasks(end_date);
 
 なお、祝日ハイライトは`holidays-jp`という外部の公開API（秘密キー不要）をフロントエンドから
 直接`fetch`しているだけで、Supabase側には一切データを持たせません（8章参照）。
+
+### 4.6 `avatars`ストレージバケット（アバター画像）
+
+プロフィール画像は、DBのテーブルではなくSupabase Storageの公開バケットに保存します。
+
+```sql
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+```
+
+保存パスは`{ユーザーID}/avatar`という形式で、ユーザー1人につき1ファイルを`upsert`
+（同じパスに再アップロードすると上書き）する運用にしています。RLSポリシーは
+「自分のユーザーIDのフォルダにのみ書き込み・更新・削除できる」
+（`(storage.foldername(name))[1] = auth.uid()::text`で判定）、かつ「誰でも閲覧できる」
+（`public`バケットのため）という内容で、`supabase-migration-profile.sql`にまとめています。
+アップロード後の公開URLは`getPublicUrl()`で取得し、末尾にタイムスタンプ（`?t=...`）を付けて
+`profiles.avatar_url`に保存することで、同じファイル名で上書きしてもブラウザのキャッシュが
+古い画像を表示し続けないようにしています。
+
+### 4.7 退会（アカウント削除）用の関数
+
+Supabaseの匿名キー（anon key）では、`auth.users`テーブルの行を直接削除することはできません
+（自分自身の行であっても）。そのため、退会機能は`security definer`（関数の定義者の権限で実行
+される）Postgres関数を経由し、`auth.uid()`で本人のIDに限定した上で削除を行う設計にしています。
+
+```sql
+create or replace function public.delete_own_account()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.tasks where created_by = auth.uid();
+  update public.tasks set reviewer_id = null where reviewer_id = auth.uid();
+  delete from auth.users where id = auth.uid();
+end;
+$$;
+
+grant execute on function public.delete_own_account() to authenticated;
+```
+
+フロントエンド側（`App.tsx`の`handleDeleteAccount`）では、この関数を呼ぶ前に必ずパスワードで
+再認証（`signInWithPassword`）を行い、`window.confirm`による確認ダイアログも挟んでいます。
+`auth.users`の行を削除すると、`profiles`テーブルの対応行も`on delete cascade`で自動的に
+削除されます。このSQLは`supabase-migration-account-deletion.sql`にまとめています。
 
 ---
 
@@ -333,6 +390,8 @@ create index idx_tasks_end_date on tasks(end_date);
 | ファイル | 役割 |
 |---|---|
 | `supabase-schema.sql`（プロジェクトルート） | 4テーブル・トリガー2つ（`handle_new_user` / `set_updated_at`）・RLSポリシー一式・`idx_tasks_end_date`索引をまとめたSQLマイグレーション。Supabase側のSQL Editorで1回実行する運用 |
+| `supabase-migration-profile.sql`（プロジェクトルート） | `profiles.avatar_url`列・`avatars`ストレージバケット・そのRLSポリシー（4.6参照）。SQL Editorで1回実行 |
+| `supabase-migration-account-deletion.sql`（プロジェクトルート） | 退会機能用の`delete_own_account`関数（4.7参照）。SQL Editorで1回実行 |
 | `.env.example` | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`のプレースホルダー（Gitにコミットする） |
 | `.env`（Git管理外） | 実際のProject URL・anon keyを入れる本番用の設定ファイル。`.gitignore`に追加済み |
 | `src/vite-env.d.ts` | 上記2つの環境変数をTypeScriptに認識させる型定義（`規約.md`の「型を安易に緩めない」方針に沿って追加） |
@@ -373,3 +432,6 @@ create index idx_tasks_end_date on tasks(end_date);
 - 確認者候補が0人になる制約（`仕様書.md`8章）は、Supabase移行後も引き続き残っている。実際の
   ユーザー登録が増えるまでは、確認者欄が空欄のままタスクを作成することになる（想定通りの挙動）。
 - Supabase Realtime対応（8章の7）は未着手。着手する場合は明示的な指示を待つ。
+- `supabase-migration-profile.sql`と`supabase-migration-account-deletion.sql`（4.6・4.7）は、
+  Supabase側のSQL Editorで実行済みかどうかを別途確認する必要がある。未実行の場合、アバター
+  アップロードと退会機能はそれぞれ失敗する。

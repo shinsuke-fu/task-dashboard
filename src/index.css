@@ -15,10 +15,27 @@
 
 
 /* =========================================================
-   🌿 1. SAGE MATTE DARK
-   Calm / Natural / Productivity
+   ⚫ 1. GRAPHITE（デフォルト）
+   Modern / SaaS / Minimal
    ========================================================= */
 :root,
+[data-theme="graphite-dark"] {
+  --theme-base: #101214;
+  --theme-surface: rgba(24, 27, 31, 0.45);
+  --theme-card: #1e2227;
+
+  --theme-text-main: #f1f3f5;
+  --theme-text-sub: #8b949e;
+
+  --theme-accent: #4dd4c0;
+  --theme-border-card: #30363d;
+}
+
+
+/* =========================================================
+   🌿 2. SAGE MATTE DARK
+   Calm / Natural / Productivity
+   ========================================================= */
 [data-theme="sage-dark"] {
   --theme-base: #0e1714;
   --theme-surface: rgba(18, 31, 26, 0.45);
@@ -29,23 +46,6 @@
 
   --theme-accent: #3da889;
   --theme-border-card: #234236;
-}
-
-
-/* =========================================================
-   🧱 2. TERRACOTTA MATTE DARK
-   Warm / Creative / Comfortable
-   ========================================================= */
-[data-theme="terracotta-dark"] {
-  --theme-base: #180f0e;
-  --theme-surface: rgba(32, 18, 16, 0.45);
-  --theme-card: #281b19;
-
-  --theme-text-main: #f7eeec;
-  --theme-text-sub: #b8918d;
-
-  --theme-accent: #c65e56;
-  --theme-border-card: #472c28;
 }
 
 
@@ -101,24 +101,7 @@
 
 
 /* =========================================================
-   ⚫ 6. GRAPHITE
-   Modern / SaaS / Minimal
-   ========================================================= */
-[data-theme="graphite-dark"] {
-  --theme-base: #101214;
-  --theme-surface: rgba(24, 27, 31, 0.45);
-  --theme-card: #1e2227;
-
-  --theme-text-main: #f1f3f5;
-  --theme-text-sub: #8b949e;
-
-  --theme-accent: #4dd4c0;
-  --theme-border-card: #30363d;
-}
-
-
-/* =========================================================
-   🟢 7. LIME
+   🟢 6. LIME
    Startup / Energetic / Modern
    ========================================================= */
 [data-theme="lime-dark"] {
@@ -135,36 +118,107 @@
 
 
 /* =========================================================
-   ☀️ 8. LIGHT
-   Clean / Minimal / Bright
+   🍚 7. CREAM
+   Warm ivory / Cozy / Low-glare
+   ※旧「LIGHT」を全面調整したもの。純白(#ffffff)を避けて
+   　わずかに温かみのあるオフホワイトにすることで、長時間見ても
+   　目が痛くなりにくいようにしている（他のライト系も同様の方針）
    ========================================================= */
-[data-theme="light"] {
-  --theme-base: #f5f6f4;
-  --theme-surface: rgba(236, 239, 236, 0.75);
-  --theme-card: #ffffff;
+[data-theme="cream-light"] {
+  --theme-base: #f6f2e9;
+  --theme-surface: rgba(233, 224, 206, 0.55);
+  --theme-card: #fdfbf5;
 
-  --theme-text-main: #1a211e;
-  --theme-text-sub: #68736d;
+  --theme-text-main: #2b2620;
+  --theme-text-sub: #8c8271;
 
-  --theme-accent: #3da889;
-  --theme-border-card: #d9dfdb;
+  --theme-accent: #2f8f66;
+  --theme-border-card: #e4dbc8;
 }
 
 
 /* =========================================================
-   ☕ 9. COFFEE
-   Warm / Soft / Premium
+   🧺 8. LINEN
+   Soft beige / Warm / Calm
    ========================================================= */
-[data-theme="coffee-dark"] {
-  --theme-base: #151211;
-  --theme-surface: rgba(33, 27, 24, 0.45);
-  --theme-card: #2a211d;
+[data-theme="linen-light"] {
+  --theme-base: #f3ece2;
+  --theme-surface: rgba(227, 216, 200, 0.55);
+  --theme-card: #fdf9f3;
 
-  --theme-text-main: #f6f0eb;
-  --theme-text-sub: #a99a90;
+  --theme-text-main: #2a2420;
+  --theme-text-sub: #8d8172;
 
-  --theme-accent: #e39a78;
-  --theme-border-card: #40332d;
+  --theme-accent: #b1573f;
+  --theme-border-card: #e3d5c3;
+}
+
+
+/* =========================================================
+   🌫️ 9. MIST
+   Cool light gray-blue / Business / Fresh
+   ========================================================= */
+[data-theme="mist-light"] {
+  --theme-base: #eef1f3;
+  --theme-surface: rgba(214, 222, 227, 0.55);
+  --theme-card: #fbfcfd;
+
+  --theme-text-main: #1f242a;
+  --theme-text-sub: #78838d;
+
+  --theme-accent: #1f6fd6;
+  --theme-border-card: #dbe2e7;
+}
+
+
+/* =========================================================
+   🦪 10. PEARL
+   Soft lavender-white / Creative / Gentle
+   ========================================================= */
+[data-theme="pearl-light"] {
+  --theme-base: #f3f0f6;
+  --theme-surface: rgba(224, 217, 232, 0.55);
+  --theme-card: #fdfcfe;
+
+  --theme-text-main: #241f2b;
+  --theme-text-sub: #877e91;
+
+  --theme-accent: #7c4fd1;
+  --theme-border-card: #e1dae9;
+}
+
+
+/* =========================================================
+   🪨 11. STONE
+   Neutral warm gray / Minimal / SaaS
+   ========================================================= */
+[data-theme="stone-light"] {
+  --theme-base: #f1f0ed;
+  --theme-surface: rgba(220, 218, 212, 0.55);
+  --theme-card: #fbfbf9;
+
+  --theme-text-main: #201f1c;
+  --theme-text-sub: #817e76;
+
+  --theme-accent: #2ea89a;
+  --theme-border-card: #ddd9d0;
+}
+
+
+/* =========================================================
+   🏖️ 12. SAND
+   Warm sandy tan / Energetic (soft version of LIME)
+   ========================================================= */
+[data-theme="sand-light"] {
+  --theme-base: #f5efdf;
+  --theme-surface: rgba(228, 217, 187, 0.55);
+  --theme-card: #fdfaef;
+
+  --theme-text-main: #2b2718;
+  --theme-text-sub: #8f8567;
+
+  --theme-accent: #71852c;
+  --theme-border-card: #e5d9b8;
 }
 
 
