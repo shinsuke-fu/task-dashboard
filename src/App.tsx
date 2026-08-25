@@ -47,6 +47,7 @@ import { SettingsView } from './components/settings/SettingsView';
 import { Login } from './pages/Login';
 import { ResetPassword } from './pages/ResetPassword';
 import { RejectReasonModal } from './components/RejectReasonModal';
+import { ImageLightbox } from './components/ImageLightbox';
 import { getTodayJstDateString } from './utils/date';
 
 // 通知ベルに表示するアラートアイテム。種類（NotificationType）はtypes/task.tsで定義し、
@@ -179,6 +180,9 @@ export default function App() {
   // 通知ベルのドロップダウン開閉状態
   const [isNotifOpen, setIsNotifOpen] = useState<boolean>(false);
   const notifDropdownRef = useRef<HTMLDivElement>(null);
+
+  // ヘッダーのアバター画像をクリックしたときの拡大表示（ImageLightbox）の開閉状態
+  const [isAvatarPreviewOpen, setIsAvatarPreviewOpen] = useState<boolean>(false);
 
   // 通知ベルの種類ごとのON/OFF設定。これも個人の好みなので引き続きlocalStorageに保存する
   const [notificationSettings, setNotificationSettings] = useState<Record<NotificationType, boolean>>(() => {
@@ -683,7 +687,7 @@ export default function App() {
           <div className="flex items-center gap-1.5 sm:gap-2 md:gap-4">
             <button
               onClick={() => { setEditingTask(undefined); setIsModalOpen(true); }}
-              className="h-9 px-3 md:px-4 bg-accent hover:bg-accent/90 text-slate-950 font-black text-xs tracking-wider rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              className="h-9 px-3 md:px-4 bg-accent hover:bg-accent/90 text-on-accent font-black text-xs tracking-wider rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -753,16 +757,31 @@ export default function App() {
                 先頭2文字を表示（未取得時は空欄）。<img>にコンテナと全く同じw-7/h-7 md:w-8/h-8を
                 指定しているのは、`w-full h-full`のような親依存サイズだと画像の実サイズによって
                 このflexアイテムの自動最小サイズが押し上げられ、正円が崩れて巨大化する不具合
-                （Safari等で顕著）があるため。ピクセル固定サイズにして完全に無関係にしている */}
-            <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-border-card border border-accent/30 flex items-center justify-center font-bold text-[8px] md:text-[10px] flex-shrink-0 min-w-0 overflow-hidden" title={myProfile?.name}>
+                （Safari等で顕著）があるため。ピクセル固定サイズにして完全に無関係にしている。
+                画像が設定されている場合のみクリック可能にし、ImageLightboxで原寸表示する
+                （X/Instagramのプロフィール画像タップと同じ挙動のイメージ） */}
+            <button
+              type="button"
+              onClick={() => { if (myProfile?.avatarUrl) setIsAvatarPreviewOpen(true); }}
+              className={`w-7 h-7 md:w-8 md:h-8 rounded-full bg-border-card border border-accent/30 flex items-center justify-center font-bold text-[8px] md:text-[10px] flex-shrink-0 min-w-0 overflow-hidden ${myProfile?.avatarUrl ? 'cursor-pointer' : 'cursor-default'}`}
+              title={myProfile?.name}
+            >
               {myProfile?.avatarUrl ? (
                 <img src={myProfile.avatarUrl} alt={myProfile.name} className="w-7 h-7 md:w-8 md:h-8 object-cover" />
               ) : (
                 myProfile ? myProfile.name.slice(0, 2) : ''
               )}
-            </div>
+            </button>
           </div>
         </header>
+
+        {isAvatarPreviewOpen && myProfile?.avatarUrl && (
+          <ImageLightbox
+            src={myProfile.avatarUrl}
+            alt={myProfile.name}
+            onClose={() => setIsAvatarPreviewOpen(false)}
+          />
+        )}
 
         {/* グローバル操作フィルターバー：設定ページ（currentView==='settings'）にはタスクの
             絞り込みという概念が無いため、そのタブを開いている間は非表示にする */}

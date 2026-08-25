@@ -27,11 +27,13 @@ export const AboutSection: React.FC<AboutSectionProps> = ({ developerName }) => 
     <div className="bg-card border border-border-card rounded-xl p-5 md:p-6 shadow-xs space-y-6">
       <label className="block text-[10px] font-black text-text-sub uppercase">アプリについて</label>
 
-      {/* ロゴ・アプリ名・バージョン。設定画面の他のアバター/アイコン類（プロフィール画像・
-          ヘッダーのアバター）と見た目を揃えるため、Sidebar.tsx等で使っているrounded-xl
-          （角丸四角）ではなくrounded-full（正円）にしている */}
+      {/* ロゴ・アプリ名・バージョン。これはプロフィール画像のようなアバターではなく
+          「ブランドロゴ」なので、Sidebar.tsx・Login.tsxのW+ロゴと同じrounded-xl
+          （角丸四角）・文字色（黒固定のtext-slate-950）に統一している。ロゴは装飾要素
+          として黒固定で問題ない、という判断（可読性を気にする必要があるボタン等の
+          文字色は--theme-on-accent。index.css参照） */}
       <div className="flex items-center gap-3">
-        <div className="w-11 h-11 flex-shrink-0 rounded-full bg-gradient-to-br from-accent to-sky-500 flex items-center justify-center font-black text-base text-slate-950 shadow-[0_0_15px_rgba(56,189,248,0.25)] tracking-tighter">
+        <div className="w-11 h-11 flex-shrink-0 rounded-xl bg-gradient-to-br from-accent to-sky-500 flex items-center justify-center font-black text-base text-slate-950 shadow-[0_0_15px_rgba(56,189,248,0.25)] tracking-tighter">
           W+
         </div>
         <div>

@@ -148,13 +148,13 @@ export const GanttChart: React.FC<GanttChartProps> = ({ tasks, users }) => {
                         return (
                           <div key={day.dateStr} className={`h-full border-r border-surface/30 last:border-r-0 flex items-center justify-center relative ${day.isWeekend ? 'bg-surface/10' : ''}`}>
                             {shouldShow && (
-                              <div 
-                                className={`absolute inset-x-1.5 h-4.5 rounded-md flex items-center justify-center text-[9px] font-black tracking-wider text-slate-950 shadow-xs border transition-all animate-fade-in
-                                  ${isOverdue 
-                                    ? 'bg-rose-500 border-rose-600/30 animate-pulse !text-white' 
-                                    : task.status === 'review' 
-                                      ? 'bg-amber-500 border-amber-600/30' 
-                                      : 'bg-accent border-accent/30' 
+                              <div
+                                className={`absolute inset-x-1.5 h-4.5 rounded-md flex items-center justify-center text-[9px] font-black tracking-wider shadow-xs border transition-all animate-fade-in
+                                  ${isOverdue
+                                    ? 'bg-rose-500 border-rose-600/30 animate-pulse text-white'
+                                    : task.status === 'review'
+                                      ? 'bg-amber-500 border-amber-600/30 text-slate-950'
+                                      : 'bg-accent border-accent/30 text-on-accent'
                                   }
                                 `}
                                 title={`${task.title} | 締切: ${task.endDate}`}

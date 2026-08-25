@@ -364,7 +364,7 @@ export default function TaskForm({ isOpen, editingTask, users, currentUserId, on
           <button type="button" onClick={onClose} className="h-9 px-4 bg-surface hover:bg-base text-text-sub font-bold text-xs rounded-xl cursor-pointer border border-border-card/50 transition">
             キャンセル
           </button>
-          <button type="submit" className="h-9 px-5 bg-accent hover:bg-accent/90 text-slate-950 font-black text-xs rounded-xl cursor-pointer shadow-md">
+          <button type="submit" className="h-9 px-5 bg-accent hover:bg-accent/90 text-on-accent font-black text-xs rounded-xl cursor-pointer shadow-md">
             {editingTask ? '変更を保存' : 'タスクを作成'}
           </button>
         </div>

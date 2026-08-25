@@ -10,8 +10,16 @@
   --color-text-main: var(--theme-text-main);
   --color-text-sub: var(--theme-text-sub);
   --color-accent: var(--theme-accent);
+  --color-on-accent: var(--theme-on-accent);
   --color-border-card: var(--theme-border-card);
 }
+
+/* --theme-on-accent … アクセントカラーを背景として塗りつぶすUI（ボタンやバッジなど）に
+   重ねる文字色。ダーク系テーマのアクセントは明るい色なので黒文字（#020617）、
+   ライト系テーマのアクセントは「地の背景の上に文字として使っても読みやすい」ように
+   意図的に彩度の高い“濃いめ”の色を選んでいるため白文字（#ffffff）、というダーク/ライトの
+   2区分でシンプルに統一している（テーマごとに黒・白が入り混じると見た目の一貫性が
+   崩れるため、細かい最適化よりもこの統一ルールを優先している）。 */
 
 
 /* =========================================================
@@ -28,6 +36,7 @@
   --theme-text-sub: #8b949e;
 
   --theme-accent: #4dd4c0;
+  --theme-on-accent: #020617;
   --theme-border-card: #30363d;
 }
 
@@ -45,6 +54,7 @@
   --theme-text-sub: #7fa494;
 
   --theme-accent: #3da889;
+  --theme-on-accent: #020617;
   --theme-border-card: #234236;
 }
 
@@ -62,6 +72,7 @@
   --theme-text-sub: #adab93;
 
   --theme-accent: #d8c77a;
+  --theme-on-accent: #020617;
   --theme-border-card: #3f3a22;
 }
 
@@ -79,6 +90,7 @@
   --theme-text-sub: #8aa1b8;
 
   --theme-accent: #3b9eff;
+  --theme-on-accent: #020617;
   --theme-border-card: #26384b;
 }
 
@@ -96,6 +108,7 @@
   --theme-text-sub: #a999bd;
 
   --theme-accent: #a778fa;
+  --theme-on-accent: #020617;
   --theme-border-card: #342c43;
 }
 
@@ -113,6 +126,7 @@
   --theme-text-sub: #909890;
 
   --theme-accent: #b7d94c;
+  --theme-on-accent: #020617;
   --theme-border-card: #30372f;
 }
 
@@ -133,6 +147,7 @@
   --theme-text-sub: #8c8271;
 
   --theme-accent: #2f8f66;
+  --theme-on-accent: #ffffff;
   --theme-border-card: #e4dbc8;
 }
 
@@ -150,6 +165,7 @@
   --theme-text-sub: #8d8172;
 
   --theme-accent: #b1573f;
+  --theme-on-accent: #ffffff;
   --theme-border-card: #e3d5c3;
 }
 
@@ -167,6 +183,7 @@
   --theme-text-sub: #78838d;
 
   --theme-accent: #1f6fd6;
+  --theme-on-accent: #ffffff;
   --theme-border-card: #dbe2e7;
 }
 
@@ -184,6 +201,7 @@
   --theme-text-sub: #877e91;
 
   --theme-accent: #7c4fd1;
+  --theme-on-accent: #ffffff;
   --theme-border-card: #e1dae9;
 }
 
@@ -201,6 +219,7 @@
   --theme-text-sub: #817e76;
 
   --theme-accent: #2ea89a;
+  --theme-on-accent: #ffffff;
   --theme-border-card: #ddd9d0;
 }
 
@@ -218,6 +237,7 @@
   --theme-text-sub: #8f8567;
 
   --theme-accent: #71852c;
+  --theme-on-accent: #ffffff;
   --theme-border-card: #e5d9b8;
 }
 
