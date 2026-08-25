@@ -63,8 +63,8 @@ export const ResetPassword: React.FC<ResetPasswordProps> = ({ onDone }) => {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-zinc-950 px-4">
         <div className="w-full max-w-sm rounded-2xl border border-zinc-900 bg-zinc-900/30 p-8 backdrop-blur-xl shadow-2xl text-center">
-          <div className="h-9 w-9 mx-auto rounded-xl border border-zinc-800 bg-zinc-950 flex items-center justify-center mb-4">
-            <div className="h-3 w-3 rounded-sm bg-white" />
+          <div className="h-9 w-9 mx-auto rounded-xl bg-gradient-to-br from-accent to-sky-500 flex items-center justify-center mb-4 font-black text-xs text-slate-950 shadow-[0_0_15px_rgba(56,189,248,0.25)] tracking-tighter">
+            W+
           </div>
           <h2 className="text-sm font-medium text-zinc-200 mb-2">パスワードを更新しました</h2>
           <p className="text-xs text-zinc-500 leading-relaxed">
@@ -86,8 +86,8 @@ export const ResetPassword: React.FC<ResetPasswordProps> = ({ onDone }) => {
     <div className="flex min-h-dvh items-center justify-center bg-zinc-950 px-4">
       <div className="w-full max-w-sm rounded-2xl border border-zinc-900 bg-zinc-900/30 p-8 backdrop-blur-xl shadow-2xl">
         <div className="flex flex-col items-center justify-center text-center mb-8">
-          <div className="h-9 w-9 rounded-xl border border-zinc-800 bg-zinc-950 flex items-center justify-center mb-3">
-            <div className="h-3 w-3 rounded-sm bg-white" />
+          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-accent to-sky-500 flex items-center justify-center mb-3 font-black text-xs text-slate-950 shadow-[0_0_15px_rgba(56,189,248,0.25)] tracking-tighter">
+            W+
           </div>
           <h2 className="text-sm font-medium text-zinc-200">WORK PLUS</h2>
           <p className="mt-1 text-xs text-zinc-500">新しいパスワードの設定</p>

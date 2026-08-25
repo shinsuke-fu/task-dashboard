@@ -79,6 +79,7 @@ const initialTasks: Task[] = [
     priority: 'high',
     assignees: [],
     reviewerId: undefined,
+    createdBy: '', // このサンプルテンプレートのcreatedByは未使用（実際の挿入時はcurrentUserIdを使う）
   },
 ];
 
@@ -113,6 +114,7 @@ const mapRowToTask = (row: SupabaseTaskRow): Task => ({
   reviewerId: row.reviewer_id ?? undefined,
   returnReason: row.return_reason ?? undefined,
   subtasks: row.task_subtasks.map((s) => ({ id: s.id, title: s.title, done: s.done })),
+  createdBy: row.created_by,
 });
 
 export default function App() {
@@ -161,10 +163,11 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState<boolean>(false);
 
-  // 配色テーマ（9種類）。これは複数人で共有する必要のない「個人の見た目の好み」なので、
-  // 引き続きこのブラウザのlocalStorageにのみ保存する（Supabase化はしていない）
+  // 配色テーマ（12種類）。これは複数人で共有する必要のない「個人の見た目の好み」なので、
+  // 引き続きこのブラウザのlocalStorageにのみ保存する（Supabase化はしていない）。
+  // デフォルトはGRAPHITE（2026-08-25変更。src/index.cssの`:root`側もGRAPHITEに合わせてある）
   const [theme, setTheme] = useState<AppTheme>(() => {
-    return (localStorage.getItem('dashboard_theme') as AppTheme) || 'sage-dark';
+    return (localStorage.getItem('dashboard_theme') as AppTheme) || 'graphite-dark';
   });
 
   // 現在表示中のビュー（'dashboard' | 'tasks' | その他）。文字列切替による一面集約型ルーティング
@@ -223,14 +226,14 @@ export default function App() {
     let cancelled = false;
     supabase
       .from('profiles')
-      .select('id, display_name')
+      .select('id, display_name, avatar_url')
       .then(({ data, error }) => {
         if (cancelled) return;
         if (error) {
           console.error('担当者一覧の取得に失敗しました:', error);
           return;
         }
-        setUsers((data ?? []).map((p) => ({ id: p.id, name: p.display_name })));
+        setUsers((data ?? []).map((p) => ({ id: p.id, name: p.display_name, avatarUrl: p.avatar_url ?? undefined })));
       });
 
     refreshTasks();
@@ -334,7 +337,9 @@ export default function App() {
   // 担当者（task_assignees）・サブタスク（task_subtasks）は、差分計算をせず
   // 「いったん全削除してから作り直す」方式にしている（認証・DB設計書.md 7章参照）。
   // 保存後はrefreshTasks()でサーバーの最新状態を読み直す
-  const handleSaveTask = async (taskData: Omit<Task, 'id' | 'status'>) => {
+  // createdBy（作成者）は受け取らない。新規作成時はここでcurrentUserIdから設定するため
+  // （TaskForm.tsx側もOmitで除外している）
+  const handleSaveTask = async (taskData: Omit<Task, 'id' | 'status' | 'createdBy'>) => {
     const taskRow = {
       title: taskData.title,
       description: taskData.description ?? null,
@@ -476,8 +481,81 @@ export default function App() {
     setNotificationSettings(prev => ({ ...prev, [type]: !prev[type] }));
   };
 
-  // ログアウト（設定ページやSidebarのログアウトボタンから呼ばれる）
+  // 表示名を変更する（設定ページのプロフィールセクションから呼ばれる）。
+  // profiles.display_nameを更新し、担当者一覧（users）にも即座に反映する
+  // （users配列を作り直すためだけにrefreshし直すのは無駄が多いため、ローカルでも更新する）
+  const handleUpdateDisplayName = async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const { error } = await supabase.from('profiles').update({ display_name: trimmed }).eq('id', currentUserId);
+    if (error) throw error;
+    setUsers(prev => prev.map(u => (u.id === currentUserId ? { ...u, name: trimmed } : u)));
+  };
+
+  // アバター画像をアップロードする（設定ページのプロフィールセクションから呼ばれる）。
+  // Supabase Storageの`avatars`バケット（supabase-migration-profile.sql参照）に
+  // 「<自分のuser_id>/avatar」という固定パスでアップロードし（upsert:trueで毎回上書き、
+  // 別ファイルが増え続けないようにする）、公開URLをprofiles.avatar_urlに保存する。
+  // 同じパスを使い回すと同じURLになりブラウザ/CDNのキャッシュが残りやすいため、
+  // 保存するURLの末尾にタイムスタンプを付けてキャッシュを回避する
+  const handleUploadAvatar = async (file: File) => {
+    const path = `${currentUserId}/avatar`;
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(path, file, { upsert: true, contentType: file.type });
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage.from('avatars').getPublicUrl(path);
+    const bustedUrl = `${data.publicUrl}?t=${Date.now()}`;
+
+    const { error: updateError } = await supabase.from('profiles').update({ avatar_url: bustedUrl }).eq('id', currentUserId);
+    if (updateError) throw updateError;
+
+    setUsers(prev => prev.map(u => (u.id === currentUserId ? { ...u, avatarUrl: bustedUrl } : u)));
+  };
+
+  // ログイン中にパスワードを変更する（設定ページのプロフィールセクションから呼ばれる。
+  // メールリンク経由のResetPassword.tsxとは別の入り口）。
+  // Supabaseの`updateUser`はアクティブなセッションがあれば現在のパスワードを知らなくても
+  // 更新できてしまうため、なりすまし対策として「現在のパスワード」で一度サインインし直す
+  // （＝本人確認）ことを必須にしてから更新する
+  const handleChangePassword = async (currentPassword: string, newPassword: string): Promise<string | null> => {
+    const email = session?.user.email;
+    if (!email) return 'ログイン情報を確認できませんでした。再度ログインし直してください。';
+
+    const { error: reauthError } = await supabase.auth.signInWithPassword({ email, password: currentPassword });
+    if (reauthError) return '現在のパスワードが正しくありません。';
+
+    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+    if (updateError) return updateError.message;
+
+    return null;
+  };
+
+  // 退会（アカウント削除。設定ページの「データ」タブから呼ばれる）。
+  // Supabaseのanonキーではauth.usersを直接削除できないため、あらかじめ用意した
+  // security definer関数`delete_own_account()`（supabase-migration-account-deletion.sql
+  // 参照）をRPC経由で呼ぶ。パスワード変更と同様、実行前に現在のパスワードで再認証して
+  // 本人確認する。削除成功後はローカルのセッションもクリアするためsignOutを呼んでおく
+  // （auth.users自体は既に消えているため、サーバー側には既にセッションは存在しない）
+  const handleDeleteAccount = async (password: string): Promise<string | null> => {
+    const email = session?.user.email;
+    if (!email) return 'ログイン情報を確認できませんでした。再度ログインし直してください。';
+
+    const { error: reauthError } = await supabase.auth.signInWithPassword({ email, password });
+    if (reauthError) return 'パスワードが正しくありません。';
+
+    const { error: rpcError } = await supabase.rpc('delete_own_account');
+    if (rpcError) return '削除に失敗しました: ' + rpcError.message;
+
+    await supabase.auth.signOut();
+    return null;
+  };
+
+  // ログアウト（設定ページやSidebarのログアウトボタンから呼ばれる）。
+  // 誤タップでのログアウトを防ぐため、実行前に確認ダイアログを挟む
   const handleLogout = async () => {
+    if (!window.confirm('ログアウトしますか？')) return;
     await supabase.auth.signOut();
   };
 
@@ -525,10 +603,15 @@ export default function App() {
   };
 
   // ヘッダーのテーマ切替メニューに表示するラベル一覧（AppTheme各値 → 表示名）
+  // 2026-08-25：ダーク系に偏りすぎているという指摘を受け、視認性が低かった
+  // TERRACOTTA・COFFEEを廃止し、ライト系（クリーム・オフホワイト基調）を6種類に拡充
+  // （ダーク6種・ライト6種の計12種。ライト系はどれも刺激の強い純白は避けている）。
+  // GRAPHITEをデフォルト兼先頭に変更（オブジェクトのプロパティ順＝設定画面での表示順）
   const themeLabels: Record<AppTheme, string> = {
-    'sage-dark': 'SAGE', 'terracotta-dark': 'TERRACOTTA', 'bronze-dark': 'BRONZE',
-    'ocean-dark': 'OCEAN', 'amethyst-dark': 'AMETHYST', 'graphite-dark': 'GRAPHITE',
-    'lime-dark': 'LIME', 'light': 'LIGHT', 'coffee-dark': 'COFFEE',
+    'graphite-dark': 'GRAPHITE', 'sage-dark': 'SAGE', 'bronze-dark': 'BRONZE',
+    'ocean-dark': 'OCEAN', 'amethyst-dark': 'AMETHYST', 'lime-dark': 'LIME',
+    'cream-light': 'CREAM', 'linen-light': 'LINEN', 'mist-light': 'MIST',
+    'pearl-light': 'PEARL', 'stone-light': 'STONE', 'sand-light': 'SAND',
   };
 
   // 初回のセッション確認が終わるまでは、何も出さず待つ（ログイン画面がちらつくのを防ぐ）
@@ -666,70 +749,81 @@ export default function App() {
               </svg>
             </button>
 
-            {/* アバター：自分のprofiles.display_nameの先頭2文字を表示（未取得時は空欄） */}
-            <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-border-card border border-accent/30 flex items-center justify-center font-bold text-[8px] md:text-[10px] flex-shrink-0" title={myProfile?.name}>
-              {myProfile ? myProfile.name.slice(0, 2) : ''}
+            {/* アバター：avatar_urlが設定されていれば画像を、無ければ自分のprofiles.display_nameの
+                先頭2文字を表示（未取得時は空欄）。<img>にコンテナと全く同じw-7/h-7 md:w-8/h-8を
+                指定しているのは、`w-full h-full`のような親依存サイズだと画像の実サイズによって
+                このflexアイテムの自動最小サイズが押し上げられ、正円が崩れて巨大化する不具合
+                （Safari等で顕著）があるため。ピクセル固定サイズにして完全に無関係にしている */}
+            <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-border-card border border-accent/30 flex items-center justify-center font-bold text-[8px] md:text-[10px] flex-shrink-0 min-w-0 overflow-hidden" title={myProfile?.name}>
+              {myProfile?.avatarUrl ? (
+                <img src={myProfile.avatarUrl} alt={myProfile.name} className="w-7 h-7 md:w-8 md:h-8 object-cover" />
+              ) : (
+                myProfile ? myProfile.name.slice(0, 2) : ''
+              )}
             </div>
           </div>
         </header>
 
-        {/* グローバル操作フィルターバー */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 md:px-8 py-2.5 bg-card/10 border-b border-border-card flex-shrink-0 select-none">
-          {/* 担当者・カテゴリ・優先度の3つの選択を flex-wrap にし、幅の狭いスマホ画面でも
-              横はみ出し（横スクロール）せず自然に折り返すようにする。
-              画面（タブ）ごとには分けず、全画面共通のフィルターとして扱う（ユーザー確認済み） */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            {/* 担当者個別選択 */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] uppercase font-bold tracking-widest text-text-sub">担当者:</span>
-              <select
-                value={filterUser}
-                onChange={(e) => setFilterUser(e.target.value)}
-                className="bg-card border border-border-card/80 text-[11px] font-bold rounded-lg px-2.5 py-1 text-text-main focus:outline-none focus:border-accent cursor-pointer"
-              >
-                <option value="all">全員の一覧</option>
-                {users.map(user => (
-                  <option key={user.id} value={user.id}>{user.name}</option>
-                ))}
-              </select>
+        {/* グローバル操作フィルターバー：設定ページ（currentView==='settings'）にはタスクの
+            絞り込みという概念が無いため、そのタブを開いている間は非表示にする */}
+        {currentView !== 'settings' && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 md:px-8 py-2.5 bg-card/10 border-b border-border-card flex-shrink-0 select-none">
+            {/* 担当者・カテゴリ・優先度の3つの選択を flex-wrap にし、幅の狭いスマホ画面でも
+                横はみ出し（横スクロール）せず自然に折り返すようにする。
+                画面（タブ）ごとには分けず、全画面共通のフィルターとして扱う（ユーザー確認済み） */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              {/* 担当者個別選択 */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-text-sub">担当者:</span>
+                <select
+                  value={filterUser}
+                  onChange={(e) => setFilterUser(e.target.value)}
+                  className="bg-card border border-border-card/80 text-[11px] font-bold rounded-lg px-2.5 py-1 text-text-main focus:outline-none focus:border-accent cursor-pointer"
+                >
+                  <option value="all">全員の一覧</option>
+                  {users.map(user => (
+                    <option key={user.id} value={user.id}>{user.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 動的カテゴリドロップダウン */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-text-sub">カテゴリ:</span>
+                <select
+                  value={filterCategory}
+                  onChange={(e) => setFilterCategory(e.target.value)}
+                  className="bg-card border border-border-card/80 text-[11px] font-bold rounded-lg px-2.5 py-1 text-text-main focus:outline-none focus:border-accent cursor-pointer"
+                >
+                  <option value="all">すべて</option>
+                  {availableCategories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 優先度ドロップダウン（TaskForm.tsx / TaskCard.tsx と表記を統一：高/中/低） */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-text-sub">優先度:</span>
+                <select
+                  value={filterPriority}
+                  onChange={(e) => setFilterPriority(e.target.value)}
+                  className="bg-card border border-border-card/80 text-[11px] font-bold rounded-lg px-2.5 py-1 text-text-main focus:outline-none focus:border-accent cursor-pointer"
+                >
+                  <option value="all">すべて</option>
+                  <option value="high">高</option>
+                  <option value="medium">中</option>
+                  <option value="low">低</option>
+                </select>
+              </div>
             </div>
 
-            {/* 動的カテゴリドロップダウン */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] uppercase font-bold tracking-widest text-text-sub">カテゴリ:</span>
-              <select
-                value={filterCategory}
-                onChange={(e) => setFilterCategory(e.target.value)}
-                className="bg-card border border-border-card/80 text-[11px] font-bold rounded-lg px-2.5 py-1 text-text-main focus:outline-none focus:border-accent cursor-pointer"
-              >
-                <option value="all">すべて</option>
-                {availableCategories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* 優先度ドロップダウン（TaskForm.tsx / TaskCard.tsx と表記を統一：高/中/低） */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] uppercase font-bold tracking-widest text-text-sub">優先度:</span>
-              <select
-                value={filterPriority}
-                onChange={(e) => setFilterPriority(e.target.value)}
-                className="bg-card border border-border-card/80 text-[11px] font-bold rounded-lg px-2.5 py-1 text-text-main focus:outline-none focus:border-accent cursor-pointer"
-              >
-                <option value="all">すべて</option>
-                <option value="high">高</option>
-                <option value="medium">中</option>
-                <option value="low">低</option>
-              </select>
+            {/* 右側の抽出件数インジケーター */}
+            <div className="text-[10px] tracking-wider text-text-sub font-medium">
+              抽出数: <span className="text-text-main font-mono font-bold bg-surface px-1.5 py-0.5 rounded border border-border-card/40">{currentFilteredCount}</span> / <span className="font-mono">{tasks.length}</span>
             </div>
           </div>
-
-          {/* 右側の抽出件数インジケーター */}
-          <div className="text-[10px] tracking-wider text-text-sub font-medium">
-            抽出数: <span className="text-text-main font-mono font-bold bg-surface px-1.5 py-0.5 rounded border border-border-card/40">{currentFilteredCount}</span> / <span className="font-mono">{tasks.length}</span>
-          </div>
-        </div>
+        )}
 
         {/* メインビュー領域（独立スクロール）
             高さは h-[calc(...)] のような固定値ではなく flex-1 + min-h-0 で計算しており、
@@ -772,12 +866,18 @@ export default function App() {
             ) : currentView === 'settings' ? (
               <div className="animate-fade-in pb-8">
                 <SettingsView
+                  displayName={myProfile?.name ?? ''}
+                  avatarUrl={myProfile?.avatarUrl}
+                  onUpdateDisplayName={handleUpdateDisplayName}
+                  onUploadAvatar={handleUploadAvatar}
+                  onChangePassword={handleChangePassword}
                   theme={theme}
                   themeLabels={themeLabels}
                   onThemeChange={setTheme}
                   notificationSettings={notificationSettings}
                   onToggleNotification={handleToggleNotification}
                   onResetSampleData={handleResetSampleData}
+                  onDeleteAccount={handleDeleteAccount}
                 />
               </div>
             ) : (

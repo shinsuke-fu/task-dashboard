@@ -20,6 +20,7 @@ export type TaskPriority = 'low' | 'medium' | 'high';
 export interface User {
   id: string;
   name: string;
+  avatarUrl?: string; // 追加：プロフィール画像のURL（未設定の場合は名前の頭文字で代替表示）
 }
 
 // サブタスク（タスク内の簡易チェックリスト項目）。
@@ -45,19 +46,29 @@ export interface Task {
   reviewerId?: string;    // 承認上司のUser ID
   returnReason?: string;  // 追加：差し戻し理由のコメント
   subtasks?: Subtask[];   // 追加：サブタスク（チェックリスト）。任意
+  createdBy: string;      // 追加：作成者のUser ID（削除ボタンの表示可否判定に使用。RLSの削除権限と揃える）
 }
 
 // 選択可能な配色テーマ（src/index.css の [data-theme="..."] に対応）
+// 2026-08-25：ダーク系に偏りすぎているという指摘を受け、視認性が低かった
+// TERRACOTTA・COFFEEを廃止し、代わりにクリーム・オフホワイト系のライトテーマを
+// 6種類に拡充（ダーク6種・ライト6種の計12種でバランスを取っている）。
+// デフォルトはGRAPHITE（先頭）。src/index.cssの`:root`にもGRAPHITEの値を設定している
 export type AppTheme =
+  // --- ダーク系（6種。GRAPHITEがデフォルト） ---
+  | 'graphite-dark'
   | 'sage-dark'
-  | 'terracotta-dark'
   | 'bronze-dark'
   | 'ocean-dark'
   | 'amethyst-dark'
-  | 'graphite-dark'
   | 'lime-dark'
-  | 'light'
-  | 'coffee-dark';
+  // --- ライト系（6種。すべて刺激の強い純白は避け、目に優しいオフホワイト/クリーム基調） ---
+  | 'cream-light'
+  | 'linen-light'
+  | 'mist-light'
+  | 'pearl-light'
+  | 'stone-light'
+  | 'sand-light';
 
 // 通知ベルに表示するアラートの種類（App.tsx・SettingsView.tsxの両方で使うため共有型として定義）
 export type NotificationType = 'overdue' | 'dueToday' | 'rejected' | 'reviewRequested';

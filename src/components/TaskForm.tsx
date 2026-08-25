@@ -31,7 +31,9 @@ interface TaskFormProps {
   users: User[];
   currentUserId: string;
   onClose: () => void;
-  onAddTask: (task: Omit<Task, 'id' | 'status'>) => void;
+  // createdBy（作成者）はこのフォームでは扱わない。新規作成時はApp.tsx側が
+  // 挿入時にcurrentUserIdから設定するため、ここではOmitで除外している
+  onAddTask: (task: Omit<Task, 'id' | 'status' | 'createdBy'>) => void;
 }
 
 export default function TaskForm({ isOpen, editingTask, users, currentUserId, onClose, onAddTask }: TaskFormProps) {
