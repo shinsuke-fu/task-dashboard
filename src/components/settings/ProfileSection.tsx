@@ -18,6 +18,7 @@
  * -----------------------------------------------------------------------
  */
 import React, { useEffect, useRef, useState } from 'react';
+import { ImageLightbox } from '../ImageLightbox';
 
 interface ProfileSectionProps {
   displayName: string;
@@ -61,6 +62,8 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
   // --- アバター画像 ---
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
+  // アバター画像クリック時の原寸表示（ImageLightbox）の開閉状態
+  const [isAvatarPreviewOpen, setIsAvatarPreviewOpen] = useState(false);
 
   const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -122,6 +125,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
   };
 
   return (
+    <>
     <div className="bg-card border border-border-card rounded-xl p-5 md:p-6 shadow-xs space-y-6">
       <label className="block text-[10px] font-black text-text-sub uppercase">プロフィール</label>
 
@@ -131,14 +135,20 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
             flexコンテナ内で`w-full h-full`のように親依存のサイズ指定にすると、画像の実サイズ
             （特に大きな写真）によってこの要素の自動最小サイズが押し上げられ、正円が崩れて
             巨大化する不具合（Safari等で顕著）があったため。ピクセル固定サイズにすることで
-            画像の実サイズに一切左右されないようにしている */}
-        <div className="w-14 h-14 rounded-full bg-base border border-border-card flex items-center justify-center font-bold text-sm text-text-sub flex-shrink-0 min-w-0 overflow-hidden">
+            画像の実サイズに一切左右されないようにしている。画像が設定されている場合のみ
+            クリック可能にし、ImageLightboxで原寸表示する（X/Instagramのプロフィール画像
+            タップと同じ挙動のイメージ） */}
+        <button
+          type="button"
+          onClick={() => { if (avatarUrl) setIsAvatarPreviewOpen(true); }}
+          className={`w-14 h-14 rounded-full bg-base border border-border-card flex items-center justify-center font-bold text-sm text-text-sub flex-shrink-0 min-w-0 overflow-hidden ${avatarUrl ? 'cursor-pointer' : 'cursor-default'}`}
+        >
           {avatarUrl ? (
             <img src={avatarUrl} alt={displayName} className="w-14 h-14 object-cover" />
           ) : (
             displayName.slice(0, 2)
           )}
-        </div>
+        </button>
         <div>
           <input
             ref={fileInputRef}
@@ -177,7 +187,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
             type="button"
             onClick={handleSaveName}
             disabled={nameSaving || !nameInput.trim() || nameInput.trim() === displayName}
-            className="h-9 px-4 bg-accent/10 hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed text-accent hover:text-slate-950 font-bold text-[11px] rounded-lg transition cursor-pointer border border-accent/20 flex-shrink-0"
+            className="h-9 px-4 bg-accent/10 hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed text-accent hover:text-on-accent font-bold text-[11px] rounded-lg transition cursor-pointer border border-accent/20 flex-shrink-0"
           >
             {nameSaving ? '保存中…' : '保存'}
           </button>
@@ -214,7 +224,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
             type="button"
             onClick={handleChangePassword}
             disabled={passwordSaving || !currentPassword || !newPassword || !newPasswordConfirm}
-            className="h-9 px-4 bg-accent/10 hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed text-accent hover:text-slate-950 font-bold text-[11px] rounded-lg transition cursor-pointer border border-accent/20"
+            className="h-9 px-4 bg-accent/10 hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed text-accent hover:text-on-accent font-bold text-[11px] rounded-lg transition cursor-pointer border border-accent/20"
           >
             {passwordSaving ? '変更中…' : 'パスワードを変更する'}
           </button>
@@ -226,5 +236,13 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
         </div>
       </div>
     </div>
+    {isAvatarPreviewOpen && avatarUrl && (
+      <ImageLightbox
+        src={avatarUrl}
+        alt={displayName}
+        onClose={() => setIsAvatarPreviewOpen(false)}
+      />
+    )}
+    </>
   );
 };

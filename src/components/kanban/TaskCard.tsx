@@ -159,12 +159,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         
         <div className="flex gap-1.5">
           {task.status === 'todo' && (
-            <button onClick={() => onUpdateStatus(task.id, 'doing')} className="px-2 py-0.5 bg-accent/10 hover:bg-accent text-accent hover:text-slate-950 font-bold rounded text-[9px] cursor-pointer transition">
+            <button onClick={() => onUpdateStatus(task.id, 'doing')} className="px-2 py-0.5 bg-accent/10 hover:bg-accent text-accent hover:text-on-accent font-bold rounded text-[9px] cursor-pointer transition">
               着手する
             </button>
           )}
           {task.status === 'doing' && (
-            <button onClick={() => onProcessAction(task.id, 'apply')} className="px-2 py-0.5 bg-accent/10 hover:bg-accent text-accent hover:text-slate-950 font-bold rounded text-[9px] cursor-pointer transition">
+            <button onClick={() => onProcessAction(task.id, 'apply')} className="px-2 py-0.5 bg-accent/10 hover:bg-accent text-accent hover:text-on-accent font-bold rounded text-[9px] cursor-pointer transition">
               承認申請
             </button>
           )}
