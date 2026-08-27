@@ -85,18 +85,28 @@ export default function KanbanBoard({
   };
 
   return (
-    <div className="flex md:grid md:grid-cols-4 gap-4 overflow-x-auto pb-4 md:overflow-visible select-none">
+    // 4カラムを横並びグリッドで見せるには、実際に最低でも1040px前後の横幅が要る
+    // （カード内のバッジ・ボタン類が崩れずに収まる目安）。以前はこの切り替えを
+    // ビューポート幅（md:）で判定していたが、サイドバーが開いているかどうかで
+    // 実際にこのボードへ残る横幅は変わる（例：タブレット幅でサイドバーを開くと
+    // ビューポート上はmd以上でも、実際の残り幅は500px程度しかない）ため、
+    // ビューポート幅だけで判定するとタブレットでサイドバーを開いたときに
+    // カラムが極端に狭くなりボードが崩れる不具合があった。
+    // `@min-[1040px]:`はコンテナクエリ（App.tsxの<main>に付けた`@container`基準）で、
+    // 「実際にこのボードへ残っている横幅」で判定するため、サイドバーの開閉状態に
+    // 関わらず正しく切り替わる
+    <div className="flex @min-[1040px]:grid @min-[1040px]:grid-cols-4 gap-4 overflow-x-auto pb-4 @min-[1040px]:overflow-visible select-none">
       {columns.map((column) => {
         const filteredTasks = displayTasks.filter((task) => task.status === column.id);
         const isHovered = activeColumn === column.id;
 
         return (
-          <div 
-            key={column.id} 
+          <div
+            key={column.id}
             onDragOver={(e) => { e.preventDefault(); setActiveColumn(column.id); }}
             onDragLeave={() => setActiveColumn(null)}
             onDrop={(e) => handleDrop(e, column.id)}
-            className={`w-[290px] md:w-auto flex-shrink-0 bg-surface backdrop-blur-md rounded-2xl border p-4 flex flex-col min-h-[550px] transition-all duration-200 ${
+            className={`w-[290px] @min-[1040px]:w-auto flex-shrink-0 bg-surface backdrop-blur-md rounded-2xl border p-4 flex flex-col min-h-[550px] transition-all duration-200 ${
               isHovered ? 'border-accent bg-accent/5 scale-[1.01]' : 'border-border-card'
             }`}
           >
