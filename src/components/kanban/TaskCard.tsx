@@ -185,7 +185,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             ) : (
               // 確認者本人以外には操作ボタンを出さず、代わりに今の状態だけ伝える
               <span className="px-2 py-0.5 text-text-sub font-bold rounded text-[9px] bg-base border border-border-card">
-                確認者の承認待ち
+                承認待ち
               </span>
             )
           )}

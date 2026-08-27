@@ -847,8 +847,13 @@ export default function App() {
         {/* メインビュー領域（独立スクロール）
             高さは h-[calc(...)] のような固定値ではなく flex-1 + min-h-0 で計算しており、
             ヘッダーやフィルターバーの実際の高さ（スマホ幅で折り返して増える等）に
-            関わらず、残り領域を正しく埋める */}
-        <main className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 bg-base/50">
+            関わらず、残り領域を正しく埋める。
+            `@container`：KanbanBoard.tsx側でタスクボードのレイアウト（横スクロール式の
+            固定幅カラム表示 ⇔ 4等分グリッド表示）の切り替えを、ビューポート幅ではなく
+            「実際にこのmainに残っている横幅」基準（コンテナクエリ）で判定できるようにする。
+            サイドバー開閉で実際の幅が変わるため、ビューポート幅（md:等）だけで判定すると、
+            タブレット幅でサイドバーを開いた状態のときにボードが崩れる不具合があった */}
+        <main className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 bg-base/50 @container">
           <div className="max-w-7xl mx-auto w-full h-full">
             {tasksLoading && tasks.length === 0 && (
               <p className="text-[11px] text-text-sub font-bold tracking-wider mb-4">タスクを読み込み中…</p>

@@ -14,10 +14,15 @@
  *      （取得に失敗しても、祝日ハイライトなしでカレンダー自体は表示を続ける）
  *   3. tasksを共通フィルター（filterTasks）で担当者・カテゴリ・優先度を絞り込み、
  *      期日（endDate）ごとにグルーピングして、該当する日のマスに表示する
- *   4. 画面幅により見た目を出し分ける（マス目データ自体は共通）：
- *      スマホ幅（sm未満）では7列グリッドだと1マスが狭すぎるため、日付を
+ *   4. 実際に使える横幅により見た目を出し分ける（マス目データ自体は共通）：
+ *      横幅が狭いときは7列グリッドだと1マスが狭すぎるため、日付を
  *      縦1列に並べる「リスト表示」にする（前後月の余白日は非表示にし、
- *      当月分の日付だけを見せる）。sm以上では従来通り7列の月間グリッド表示
+ *      当月分の日付だけを見せる）。十分な横幅があるときは従来通り7列の
+ *      月間グリッド表示にする。この判定は`@min-[640px]:`というコンテナクエリ
+ *      （App.tsxの<main>に付けた`@container`基準）で行っており、ビューポート幅
+ *      ではなく「実際にこの画面に残っている横幅」で判定する。サイドバーの
+ *      開閉で実際の横幅は変わるため、ビューポート幅（旧: sm:）だけで判定すると
+ *      タブレット幅でサイドバーを開いたときにカレンダーが崩れる不具合があった
  * -----------------------------------------------------------------------
  */
 import React, { useEffect, useMemo, useState } from 'react';
@@ -140,7 +145,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ tasks, filterUser, f
   };
 
   return (
-    <div className="bg-card border border-border-card rounded-xl p-3 sm:p-5 md:p-6 shadow-xs">
+    <div className="bg-card border border-border-card rounded-xl p-3 @min-[640px]:p-5 md:p-6 shadow-xs">
       {/* ヘッダー：表示中の年月＋前月/翌月/今日ボタン */}
       <div className="flex items-center justify-between mb-5">
         <h3 className="text-sm font-black text-text-main tracking-wide">
@@ -181,9 +186,9 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ tasks, filterUser, f
         </p>
       )}
 
-      {/* 曜日ヘッダー：スマホ幅（縦1列リスト表示）では列見出しの意味を持たないため非表示にし、
+      {/* 曜日ヘッダー：横幅が狭い（縦1列リスト表示）では列見出しの意味を持たないため非表示にし、
           各日付の行内に曜日を直接表示する（下記参照） */}
-      <div className="hidden sm:grid grid-cols-7 text-center text-[10px] font-bold text-text-sub uppercase tracking-wider mb-2">
+      <div className="hidden @min-[640px]:grid grid-cols-7 text-center text-[10px] font-bold text-text-sub uppercase tracking-wider mb-2">
         {WEEKDAY_LABELS.map((w, i) => (
           <div key={w} className={i === 0 ? 'text-rose-400' : i === 6 ? 'text-sky-400' : ''}>
             {w}
@@ -191,8 +196,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ tasks, filterUser, f
         ))}
       </div>
 
-      {/* カレンダー本体：スマホ幅（sm未満）は縦1列のリスト表示、sm以上は従来通り7列グリッド表示 */}
-      <div className="grid grid-cols-1 sm:grid-cols-7 gap-1.5">
+      {/* カレンダー本体：横幅が狭いときは縦1列のリスト表示、十分あれば従来通り7列グリッド表示 */}
+      <div className="grid grid-cols-1 @min-[640px]:grid-cols-7 gap-1.5">
         {cells.map((cell) => {
           const holidayName = holidays[cell.dateStr];
           const isToday = cell.dateStr === todayStr;
@@ -205,33 +210,33 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ tasks, filterUser, f
             <div
               key={cell.dateStr}
               title={holidayName}
-              className={`rounded-lg border p-2 sm:p-1.5 flex-col gap-1 transition-colors min-h-[40px] sm:min-h-[88px] ${
-                // 前後月の余白日は、スマホのリスト表示では紛らわしいだけなので非表示にし、
-                // sm以上の7列グリッドでは従来通り薄く表示して週の並びを保つ
-                cell.inCurrentMonth ? 'flex' : 'hidden sm:flex'
+              className={`rounded-lg border p-2 @min-[640px]:p-1.5 flex-col gap-1 transition-colors min-h-[40px] @min-[640px]:min-h-[88px] ${
+                // 前後月の余白日は、リスト表示では紛らわしいだけなので非表示にし、
+                // 7列グリッド表示では従来通り薄く表示して週の並びを保つ
+                cell.inCurrentMonth ? 'flex' : 'hidden @min-[640px]:flex'
               } ${
                 isToday ? 'border-accent bg-accent/5' : 'border-border-card/40'
               } ${!cell.inCurrentMonth ? 'opacity-35' : ''} ${holidayName ? 'bg-rose-500/5' : ''}`}
             >
               <div className="flex items-center justify-between gap-1">
-                <span className={`text-xs sm:text-[10px] font-bold font-mono ${holidayName ? 'text-rose-400' : 'text-text-sub'}`}>
+                <span className={`text-xs @min-[640px]:text-[10px] font-bold font-mono ${holidayName ? 'text-rose-400' : 'text-text-sub'}`}>
                   {cell.date.getDate()}
                   {/* 曜日：スマホの縦1列リストでは列見出しが無いため、日付の横に直接添える */}
-                  <span className={`sm:hidden ml-1 font-sans font-bold ${weekday === '日' ? 'text-rose-400' : weekday === '土' ? 'text-sky-400' : 'text-text-sub'}`}>
+                  <span className={`@min-[640px]:hidden ml-1 font-sans font-bold ${weekday === '日' ? 'text-rose-400' : weekday === '土' ? 'text-sky-400' : 'text-text-sub'}`}>
                     ({weekday})
                   </span>
                 </span>
                 {holidayName && (
-                  <span className="text-[10px] sm:text-[8px] text-rose-400 font-bold truncate">{holidayName}</span>
+                  <span className="text-[10px] @min-[640px]:text-[8px] text-rose-400 font-bold truncate">{holidayName}</span>
                 )}
               </div>
-              <div className="space-y-1 sm:space-y-0.5 overflow-hidden">
+              <div className="space-y-1 @min-[640px]:space-y-0.5 overflow-hidden">
                 {visibleTasks.map((task) => (
                   <button
                     key={task.id}
                     onClick={() => onStartEdit(task)}
                     title={task.title}
-                    className={`w-full text-left text-[11px] sm:text-[9px] font-bold px-1.5 sm:px-1 py-1 sm:py-0.5 rounded truncate cursor-pointer transition ${
+                    className={`w-full text-left text-[11px] @min-[640px]:text-[9px] font-bold px-1.5 @min-[640px]:px-1 py-1 @min-[640px]:py-0.5 rounded truncate cursor-pointer transition ${
                       task.status === 'done'
                         ? 'bg-emerald-500/10 text-emerald-400'
                         : task.endDate < todayStr
@@ -243,7 +248,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ tasks, filterUser, f
                   </button>
                 ))}
                 {overflowCount > 0 && (
-                  <div className="text-[10px] sm:text-[8px] text-text-sub font-bold px-1">+{overflowCount}件</div>
+                  <div className="text-[10px] @min-[640px]:text-[8px] text-text-sub font-bold px-1">+{overflowCount}件</div>
                 )}
               </div>
             </div>
