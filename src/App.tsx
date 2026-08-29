@@ -46,6 +46,11 @@
  *      選択中プロジェクトのメンバーに絞り込まれ、移動先のメンバーでなくなる担当者・確認者は
  *      自動的に選択から外れる。この絞り込みに使うprojectMembersは、ログイン時点で
  *      取得しておく（「プロジェクト管理」タブを開いていなくても使えるようにするため）
+ *  10. 【ステップ7】退会（設定＞データ）時、自分がオーナーかつ他にもメンバーがいる
+ *      プロジェクトが1件以上残っていると、通常の退会ボタンの代わりにオーナー引き継ぎ
+ *      セクション（OwnershipHandoverSection.tsx）を表示し、先にすべて新オーナーへ
+ *      譲渡させる（§6.2）。自分1人だけがオーナーのプロジェクトは、退会実行時に
+ *      delete_own_account()側でタスクごとまとめて削除される
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect, useRef } from 'react';
@@ -98,6 +103,8 @@ const initialTasks: Task[] = [
     assignees: [],
     reviewerId: undefined,
     createdBy: '', // このサンプルテンプレートのcreatedByは未使用（実際の挿入時はcurrentUserIdを使う）
+    projectId: '', // 同上：このサンプルテンプレートのprojectIdは未使用（実際の挿入時はcurrentProjectIdを使う。
+                    // handleResetSampleData参照。Task型がprojectIdを必須化したため、型を満たすためだけに追加）
   },
 ];
 
@@ -487,6 +494,16 @@ export default function App() {
   // 自分のプロフィール（ヘッダーのアバター表示用）
   const myProfile = users.find((u) => u.id === currentUserId);
 
+  // 【ステップ7：オーナー引き継ぎ】自分がオーナーで、かつ他にもメンバーがいる
+  // プロジェクト一覧（設定＞データ画面で、退会前に新オーナーへの譲渡を求める対象。
+  // 要件定義書§6.2）。projectMembersの更新のたびに再計算されるため、譲渡が完了して
+  // 対象が0件になれば、SettingsView.tsx側の分岐が自動的に通常の退会ボタンへ戻る
+  const projectsNeedingOwnershipHandover = projects.filter((p) => {
+    const members = projectMembers[p.id] ?? [];
+    const isOwner = members.some((m) => m.userId === currentUserId && m.role === 'owner');
+    return isOwner && members.length > 1;
+  });
+
   // 通知ベルに表示する「自分宛て」のアラート一覧。サーバー通知ではなく、
   // 現在のtasksデータから毎レンダー時に導出するシンプルな仕組み。
   // ①遅延中 ②当日締切 ③自分のタスクが差し戻された ④自分がレビュアーで承認待ち、の4種類。
@@ -824,6 +841,21 @@ export default function App() {
     }
     handleCloseMemberModal();
     await refreshProjectSummaries();
+  };
+
+  // 【ステップ7：オーナー引き継ぎ】退会フロー（設定＞データ画面）からのオーナー譲渡。
+  // 上のhandleTransferOwnershipはメンバー管理モーダル専用（対象をmemberModalProjectIdから
+  // 決め、成功後にモーダルを閉じる）ため、退会フロー用に別関数として用意する。
+  // こちらはモーダルを持たず、OwnershipHandoverSection.tsx側の行ごとのエラー表示に使うため
+  // エラーメッセージ文字列（またはnull）をそのまま返す（onDeleteAccount等と同じ形式）
+  const handleTransferOwnershipForRetirement = async (projectId: string, newOwnerId: string): Promise<string | null> => {
+    const { error } = await supabase.rpc('transfer_project_ownership', {
+      p_project_id: projectId,
+      p_new_owner_id: newOwnerId,
+    });
+    if (error) return 'オーナー譲渡に失敗しました: ' + error.message;
+    await refreshProjectSummaries();
+    return null;
   };
 
   // プロジェクトからの脱退（オーナー以外のメンバー本人のみ。RLSの
@@ -1299,6 +1331,11 @@ export default function App() {
                   onToggleNotification={handleToggleNotification}
                   onResetSampleData={handleResetSampleData}
                   onDeleteAccount={handleDeleteAccount}
+                  projectsNeedingOwnershipHandover={projectsNeedingOwnershipHandover}
+                  projectMembers={projectMembers}
+                  users={users}
+                  currentUserId={currentUserId}
+                  onTransferOwnershipForRetirement={handleTransferOwnershipForRetirement}
                 />
               </div>
             ) : currentView === 'project' ? (

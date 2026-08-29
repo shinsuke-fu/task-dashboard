@@ -15,6 +15,14 @@
 -- Postgresの仕組みを使い、"呼び出したユーザー自身のアカウントだけ"を
 -- 削除できる関数をあらかじめ用意しておきます。これがSupabaseで自己都合の
 -- アカウント削除を実装する際の標準的なやり方です。
+--
+-- 【ステップ7で追加：オーナー引き継ぎ組み込み（2026-08-29）】
+-- 自分がオーナーで他に誰もメンバーがいない（＝自分1人だけの）プロジェクトは、
+-- 退会時にタスクごとまとめて削除する（プロジェクト管理機能_要件定義書.md §6.2）。
+-- 他にメンバーがいるオーナープロジェクトは、退会前にフロント側（設定＞データ画面の
+-- オーナー引き継ぎセクション）で新オーナーへの譲渡を済ませてから退会する運用のため、
+-- ここでの削除対象には含めない（詳細はsupabase-migration-account-deletion-owner-
+-- handover.sqlのコメント参照）。
 -- =============================================================================
 
 
@@ -25,8 +33,24 @@ security definer
 set search_path = public
 as $$
 begin
+  -- 0. 自分がオーナーで、他に誰もメンバーがいない（＝自分1人だけの）プロジェクトを削除する。
+  --    `tasks.project_id`はon delete cascadeのため、配下のタスクもまとめて消える。
+  --    念のため「他のメンバーがいないこと」をここでも確認してから削除する（二重の安全策）
+  delete from public.projects
+  where id in (
+    select pm.project_id
+    from public.project_members pm
+    where pm.user_id = auth.uid()
+      and pm.role = 'owner'
+      and not exists (
+        select 1 from public.project_members pm2
+        where pm2.project_id = pm.project_id and pm2.user_id <> auth.uid()
+      )
+  );
+
   -- 1. 自分が作成したタスクを削除
-  --    （task_assignees・task_subtasksはON DELETE CASCADEで自動的に一緒に消える）
+  --    （上記0で削除されなかったプロジェクト内のタスクのうち、自分が作成したもの。
+  --    task_assignees・task_subtasksはON DELETE CASCADEで自動的に一緒に消える）
   delete from public.tasks where created_by = auth.uid();
 
   -- 2. 他人が作成したタスクの確認者(reviewer_id)に自分が設定されている場合、
