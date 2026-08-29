@@ -3,17 +3,17 @@
  * -----------------------------------------------------------------------
  * 【役割】
  *   アプリ全体を束ねるルートコンポーネント。tasks・ユーザー一覧・認証状態・
- *   テーマ・フィルター条件など「すべての状態」をここで一元管理する
- *   Single Source of Truth（規約①）。子・孫コンポーネントは状態を
+ *   テーマ・フィルター条件・選択中プロジェクトなど「すべての状態」をここで
+ *   一元管理するSingle Source of Truth（規約①）。子・孫コンポーネントは状態を
  *   直接書き換えず、Props経由で渡された関数（onUpdateStatus 等）を
  *   呼び出すことでのみ状態変更をリクエストする。
  *
  * 【主な処理】
  *   1. 認証状態はSupabase Authのセッション（onAuthStateChange）と連動する。
- *      tasks（タスク一覧）・users（担当者一覧）はSupabaseのDBから取得し、
- *      テーマ・通知ON/OFF設定など「個人の見た目の好み」だけはこれまで通り
- *      ブラウザのlocalStorageに保存する（この2つは複数人で共有する必要が
- *      無いデータのため、あえてSupabase化していない）
+ *      tasks（タスク一覧）・users（担当者一覧）・projects（参加プロジェクト一覧）は
+ *      SupabaseのDBから取得し、テーマ・通知ON/OFF設定・選択中プロジェクトなど
+ *      「個人の見た目の好み・選択状態」だけはこれまで通りブラウザのlocalStorageに
+ *      保存する（複数人で共有する必要が無いデータのため、あえてSupabase化していない）
  *   2. currentView（文字列）の切り替えだけで画面を出し分ける
  *      「一面集約型SPA」のルーティングを実現（外部ルーターは未使用・規約②）
  *   3. タスクの作成・編集・削除・ステータス変更・承認/差し戻しなど、
@@ -27,16 +27,22 @@
  *   5. tasksから「自分向けの通知」（遅延・当日締切・差し戻し・承認待ち）を
  *      都度算出し、ヘッダーの通知ベルのドロップダウンに表示する
  *   6. 「スケジュール」タブでは月間カレンダー形式のScheduleViewを表示する
- *      （「プロジェクト管理」タブは引き続き未実装のプレースホルダーのまま）
  *   7. 「設定」タブ（currentView==='settings'）では、テーマ／通知ON-OFF／
  *      サンプルデータのリセットを行うSettingsViewを表示する。ヘッダーの
  *      アバター横と、サイドバー下部のログアウト横、2箇所の⚙️ボタンから、
  *      どちらもこの同じ設定ページへ遷移する
+ *   8. 【プロジェクト管理機能】currentProjectId（選択中プロジェクト）を1つ保持し、
+ *      ダッシュボード／タスクボード／スケジュールの3画面はこのプロジェクトの
+ *      タスクだけをSupabaseから取得して表示する（`.eq('project_id', ...)`で絞り込み。
+ *      プロジェクト管理機能_要件定義書.md §1・§2.1・§4）。未選択の間はこの3画面に
+ *      「プロジェクトを選択してください」という案内を出す。プロジェクト管理タブ
+ *      （一覧・作成・編集本体）は次のステップで実装するため、現時点では
+ *      サイドバーのアコーディオンからの参加プロジェクト選択のみに対応する
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import type { Task, AppTheme, User, NotificationType } from './types/task';
+import type { Task, AppTheme, User, NotificationType, Project, ProjectStatus } from './types/task';
 import { supabase } from './lib/supabaseClient';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/kanban/KanbanBoard';
@@ -118,6 +124,24 @@ const mapRowToTask = (row: SupabaseTaskRow): Task => ({
   createdBy: row.created_by,
 });
 
+// Supabaseから取得した1行分のプロジェクト生データの型（projectsテーブル）。
+// mapRowToTaskと同様、このファイル内でフロント用のProject型へ変換する
+interface SupabaseProjectRow {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  created_by: string;
+}
+
+const mapRowToProject = (row: SupabaseProjectRow): Project => ({
+  id: row.id,
+  name: row.name,
+  description: row.description ?? undefined,
+  status: row.status as ProjectStatus,
+  createdBy: row.created_by,
+});
+
 export default function App() {
 
   // ---- 認証（Supabase Authのセッションと連動） ----
@@ -164,6 +188,21 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState<boolean>(false);
 
+  // 参加中プロジェクトの一覧（Supabaseの`projects`テーブルから取得。RLSにより自分が
+  // メンバーのプロジェクトのみが返る。プロジェクト管理機能_要件定義書.md §3.1）
+  const [projects, setProjects] = useState<Project[]>([]);
+
+  // 選択中プロジェクトのID。テーマと同様、複数人で共有する必要のない「個人の選択状態」
+  // なのでブラウザのlocalStorageに保存し、リロードしても直前に見ていたプロジェクトを
+  // 復元する（§2.1）。未選択（null）の間は、後述の3画面に案内を表示しタスクは取得しない
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => {
+    return localStorage.getItem('dashboard_current_project_id') || null;
+  });
+
+  // サイドバーの「プロジェクト管理」アコーディオンの開閉状態。isSidebarOpen等の他のUI
+  // トグルと同様、Sidebar.tsx側には状態を持たせずApp.tsxで一元管理する（規約①・ui-theming.md）
+  const [isProjectMenuOpen, setIsProjectMenuOpen] = useState<boolean>(false);
+
   // 配色テーマ（12種類）。これは複数人で共有する必要のない「個人の見た目の好み」なので、
   // 引き続きこのブラウザのlocalStorageにのみ保存する（Supabase化はしていない）。
   // デフォルトはGRAPHITE（2026-08-25変更。src/index.cssの`:root`側もGRAPHITEに合わせてある）
@@ -203,12 +242,20 @@ export default function App() {
 
   // Supabaseからtasksを担当者・サブタスクごと結合して取得し直す共通関数。
   // タスクの作成・更新・削除のたびにこれを呼び、「サーバーの最新状態を毎回読み直す」
-  // シンプルな方式にしている（楽観的更新はせず、まずは確実さを優先する設計判断）
+  // シンプルな方式にしている（楽観的更新はせず、まずは確実さを優先する設計判断）。
+  // currentProjectIdで絞り込み、未選択（null）の間は取得自体を行わない
+  // （プロジェクト管理機能_要件定義書.md §1・§4。tasks.project_idはNOT NULL制約のため、
+  // 未選択のままクエリしても意味のある結果にならない）
   const refreshTasks = async () => {
+    if (!currentProjectId) {
+      setTasks([]);
+      return;
+    }
     setTasksLoading(true);
     const { data, error } = await supabase
       .from('tasks')
       .select('*, task_assignees(user_id), task_subtasks(id, title, done)')
+      .eq('project_id', currentProjectId)
       .order('created_at', { ascending: false });
     setTasksLoading(false);
 
@@ -219,11 +266,28 @@ export default function App() {
     setTasks(((data ?? []) as SupabaseTaskRow[]).map(mapRowToTask));
   };
 
-  // ログイン状態が変わったら、担当者一覧・タスク一覧を取得し直す
+  // Supabaseから自分の参加プロジェクト一覧を取得し直す共通関数。RLS
+  // （projects_select_member。supabase-migration-projects.sql参照）が自分がメンバーの
+  // プロジェクトだけを返すため、クライアント側でのuser_id絞り込みは不要
+  const refreshProjects = async () => {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('プロジェクト一覧の取得に失敗しました:', error);
+      return;
+    }
+    setProjects(((data ?? []) as SupabaseProjectRow[]).map(mapRowToProject));
+  };
+
+  // ログイン状態が変わったら、担当者一覧・参加プロジェクト一覧を取得し直す
+  // （タスク一覧は下のuseEffectで、currentProjectIdの変化も合わせて取得し直す）
   useEffect(() => {
     if (!isAuthenticated) {
       setUsers([]);
-      setTasks([]);
+      setProjects([]);
       return;
     }
 
@@ -240,12 +304,40 @@ export default function App() {
         setUsers((data ?? []).map((p) => ({ id: p.id, name: p.display_name, avatarUrl: p.avatar_url ?? undefined })));
       });
 
-    refreshTasks();
+    refreshProjects();
 
     return () => {
       cancelled = true;
     };
   }, [isAuthenticated]);
+
+  // ログイン状態、または選択中プロジェクトが変わるたびにタスク一覧を取得し直す
+  // （サイドバーのアコーディオンでプロジェクトを切り替えた瞬間もここで再取得される）
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setTasks([]);
+      return;
+    }
+    refreshTasks();
+  }, [isAuthenticated, currentProjectId]);
+
+  // 参加プロジェクト一覧を取得し直した結果、選択中プロジェクトがその一覧に
+  // 含まれなくなっていた場合（メンバーから外れた・削除された等）は選択状態を解除する
+  useEffect(() => {
+    if (projects.length === 0) return;
+    if (currentProjectId && !projects.some((p) => p.id === currentProjectId)) {
+      setCurrentProjectId(null);
+    }
+  }, [projects, currentProjectId]);
+
+  // 選択中プロジェクトが変わるたびにlocalStorageへ永続化（テーマと同じ方式。§2.1）
+  useEffect(() => {
+    if (currentProjectId) {
+      localStorage.setItem('dashboard_current_project_id', currentProjectId);
+    } else {
+      localStorage.removeItem('dashboard_current_project_id');
+    }
+  }, [currentProjectId]);
 
   // 他ユーザーの操作（例：別アカウントが承認申請してreview状態にした等）にリアルタイムに
   // 反応する仕組み（Supabase Realtimeのsubscribe等）はまだ導入していないため、画面を開きっ
@@ -344,6 +436,14 @@ export default function App() {
   // createdBy（作成者）は受け取らない。新規作成時はここでcurrentUserIdから設定するため
   // （TaskForm.tsx側もOmitで除外している）
   const handleSaveTask = async (taskData: Omit<Task, 'id' | 'status' | 'createdBy'>) => {
+    // 新規作成時はcurrentProjectIdが必須（tasks.project_idはNOT NULL制約のため。
+    // プロジェクト管理機能_要件定義書.md §3.3）。編集時（editingTaskがある場合）は
+    // 既存タスクのproject_idを変更しないため対象外（プロジェクト移動欄はステップ6で対応）
+    if (!editingTask && !currentProjectId) {
+      alert('プロジェクトが選択されていません。サイドバーからプロジェクトを選択してください。');
+      return;
+    }
+
     const taskRow = {
       title: taskData.title,
       description: taskData.description ?? null,
@@ -370,7 +470,7 @@ export default function App() {
     } else {
       const { data, error } = await supabase
         .from('tasks')
-        .insert({ ...taskRow, status: 'todo', created_by: currentUserId })
+        .insert({ ...taskRow, status: 'todo', created_by: currentUserId, project_id: currentProjectId })
         .select('id')
         .single();
       if (error || !data) {
@@ -480,6 +580,17 @@ export default function App() {
     }
   };
 
+  // サイドバーのアコーディオンでプロジェクトを選択したときの処理（要件定義書§2.1）。
+  // 選択したプロジェクトをcurrentProjectIdにし、自動的にダッシュボードへ遷移する
+  // （スマホ幅でサイドバーを閉じる処理はhandleViewChangeにすでにあるものを再利用する）
+  const handleSelectProject = (id: string) => {
+    setCurrentProjectId(id);
+    handleViewChange('dashboard');
+  };
+
+  // サイドバーの「プロジェクト管理」アコーディオンの開閉切り替え
+  const handleToggleProjectMenu = () => setIsProjectMenuOpen((prev) => !prev);
+
   // 通知ベルの種類ごとのON/OFFを切り替える（設定ページから呼ばれる）
   const handleToggleNotification = (type: NotificationType) => {
     setNotificationSettings(prev => ({ ...prev, [type]: !prev[type] }));
@@ -566,8 +677,16 @@ export default function App() {
   // タスクデータをサンプルタスクにリセットする（設定ページの「データ」セクションから呼ばれる）。
   // 複数人でタスクを共有する構成に変わったため、「自分が作成したタスクだけ」を削除して
   // 作り直す（他のユーザーが作成したタスクは削除しない）。元に戻せない操作のため、
-  // 実行前に必ず確認ダイアログを挟む
+  // 実行前に必ず確認ダイアログを挟む。
+  // 削除自体はこれまで通りプロジェクトを跨いで（自分が作成した全タスクを対象に）行うが
+  // （プロジェクト単位への変更は見送り。要件定義書§5）、作り直す1件のサンプルタスクには
+  // project_idが必須（NOT NULL制約）なので、選択中プロジェクトへ作成する
   const handleResetSampleData = async () => {
+    if (!currentProjectId) {
+      alert('プロジェクトが選択されていません。サイドバーからプロジェクトを選択してください。');
+      return;
+    }
+
     const confirmed = window.confirm(
       '自分が作成したタスクをすべて削除し、サンプルタスクを1件作り直します。' +
       'この操作は元に戻せません（他のユーザーが作成したタスクは削除されません）。よろしいですか？'
@@ -593,6 +712,7 @@ export default function App() {
         priority: sample.priority,
         reviewer_id: users.find((u) => u.id !== currentUserId)?.id ?? null,
         created_by: currentUserId,
+        project_id: currentProjectId,
       })
       .select('id')
       .single();
@@ -617,6 +737,15 @@ export default function App() {
     'cream-light': 'CREAM', 'linen-light': 'LINEN', 'mist-light': 'MIST',
     'pearl-light': 'PEARL', 'stone-light': 'STONE', 'sand-light': 'SAND',
   };
+
+  // ダッシュボード／タスクボード／スケジュールでプロジェクト未選択の間に出す案内
+  // （「近日公開」プレースホルダーと同じ見た目に揃える。要件定義書§2.1）
+  const projectNotSelectedNotice = (
+    <div className="bg-card p-12 rounded-2xl border border-border-card text-center animate-fade-in">
+      <h2 className="text-md font-bold uppercase tracking-wider mb-2 text-accent">プロジェクトを選択してください</h2>
+      <p className="text-xs text-text-sub">サイドバーの「プロジェクト管理」から、表示するプロジェクトを選んでください。</p>
+    </div>
+  );
 
   // 初回のセッション確認が終わるまでは、何も出さず待つ（ログイン画面がちらつくのを防ぐ）
   // h-dvh/w-dvw：iOS Safariのアドレスバー分だけ100vhが実際の表示領域より大きくなり、
@@ -657,6 +786,11 @@ export default function App() {
           onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
           onLogout={handleLogout}
           onOpenSettings={() => handleViewChange('settings')}
+          projects={projects}
+          currentProjectId={currentProjectId}
+          onSelectProject={handleSelectProject}
+          isProjectMenuOpen={isProjectMenuOpen}
+          onToggleProjectMenu={handleToggleProjectMenu}
         />
       </div>
 
@@ -859,34 +993,40 @@ export default function App() {
               <p className="text-[11px] text-text-sub font-bold tracking-wider mb-4">タスクを読み込み中…</p>
             )}
             {currentView === 'dashboard' ? (
-              <div className="animate-fade-in pb-8">
-                <DashboardView tasks={tasks} users={users} filterUser={filterUser} filterCategory={filterCategory} filterPriority={filterPriority} />
-              </div>
+              !currentProjectId ? projectNotSelectedNotice : (
+                <div className="animate-fade-in pb-8">
+                  <DashboardView tasks={tasks} users={users} filterUser={filterUser} filterCategory={filterCategory} filterPriority={filterPriority} />
+                </div>
+              )
             ) : currentView === 'tasks' ? (
-              <div className="space-y-6 animate-fade-in pb-8">
-                <KanbanBoard
-                  tasks={tasks}
-                  currentUserId={currentUserId}
-                  filterUser={filterUser}
-                  filterCategory={filterCategory}
-                  filterPriority={filterPriority}
-                  onUpdateStatus={handleUpdateStatus}
-                  onProcessAction={handleProcessAction}
-                  onTriggerReject={handleOpenRejectModal}
-                  onDeleteTask={handleDeleteTask}
-                  onStartEdit={handleStartEdit}
-                />
-              </div>
+              !currentProjectId ? projectNotSelectedNotice : (
+                <div className="space-y-6 animate-fade-in pb-8">
+                  <KanbanBoard
+                    tasks={tasks}
+                    currentUserId={currentUserId}
+                    filterUser={filterUser}
+                    filterCategory={filterCategory}
+                    filterPriority={filterPriority}
+                    onUpdateStatus={handleUpdateStatus}
+                    onProcessAction={handleProcessAction}
+                    onTriggerReject={handleOpenRejectModal}
+                    onDeleteTask={handleDeleteTask}
+                    onStartEdit={handleStartEdit}
+                  />
+                </div>
+              )
             ) : currentView === 'schedule' ? (
-              <div className="animate-fade-in pb-8">
-                <ScheduleView
-                  tasks={tasks}
-                  filterUser={filterUser}
-                  filterCategory={filterCategory}
-                  filterPriority={filterPriority}
-                  onStartEdit={handleStartEdit}
-                />
-              </div>
+              !currentProjectId ? projectNotSelectedNotice : (
+                <div className="animate-fade-in pb-8">
+                  <ScheduleView
+                    tasks={tasks}
+                    filterUser={filterUser}
+                    filterCategory={filterCategory}
+                    filterPriority={filterPriority}
+                    onStartEdit={handleStartEdit}
+                  />
+                </div>
+              )
             ) : currentView === 'settings' ? (
               <div className="animate-fade-in pb-8">
                 <SettingsView

@@ -72,3 +72,17 @@ export type AppTheme =
 
 // 通知ベルに表示するアラートの種類（App.tsx・SettingsView.tsxの両方で使うため共有型として定義）
 export type NotificationType = 'overdue' | 'dueToday' | 'rejected' | 'reviewRequested';
+
+// プロジェクトのステータス（「進行中」「完了」「アーカイブ」の3値。デフォルト非表示に
+// なるのはアーカイブのみ。プロジェクト管理機能_要件定義書.md §2.2・§3.1）
+export type ProjectStatus = 'active' | 'completed' | 'archived';
+
+// プロジェクト1件分のデータ構造（同§3.1）。メンバー一覧・自分のロール（オーナー／メンバー）
+// はカード表示・メンバー管理UI（ステップ4・5）で必要になった時点で別途扱う
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  status: ProjectStatus;
+  createdBy: string; // 作成者のUser ID。オーナー自体はproject_members側のroleで管理する
+}
