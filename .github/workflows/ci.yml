@@ -1,0 +1,45 @@
+# .github/workflows/ci.yml
+# -----------------------------------------------------------------------
+# 【役割】
+#   mainブランチへのpushとPull Requestのたびに、lint → test → build を
+#   自動実行するCI。ローカル環境（Claudeの作業サンドボックス含む）で
+#   npm run build が実行できない状況を補い、少なくともpush後には
+#   ビルドが壊れていないかを自動で確認できるようにする。
+#
+# 【注意】
+#   Supabase接続情報（VITE_SUPABASE_URL等）は本番のみ.envで設定するため、
+#   このCIでは設定していない。vite buildはモジュールを実行せずバンドルする
+#   だけなので、環境変数が無くてもビルド自体は失敗しない。
+# -----------------------------------------------------------------------
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Node.jsをセットアップ
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: 依存パッケージをインストール
+        run: npm ci
+
+      - name: Lint（oxlint）
+        run: npm run lint
+
+      - name: テスト（Vitest）
+        run: npm run test
+
+      - name: ビルド（型チェック＋vite build）
+        run: npm run build
