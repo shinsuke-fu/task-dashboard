@@ -4,7 +4,9 @@
  * 【役割】
  *   画面左側のナビゲーションメニュー（開閉可能）。ロゴ／メニュー項目／
  *   ログアウトボタン・設定ボタンを表示するだけの見た目主体のコンポーネントで、
- *   状態は一切保持しない（表示中ビュー・開閉状態はApp.tsxからProps経由）。
+ *   状態は一切保持しない（表示中ビュー・開閉状態・プロジェクトアコーディオンの
+ *   開閉状態もApp.tsxからProps経由。規約①のSingle Source of Truthに合わせ、
+ *   他のUIトグル（isSidebarOpen等）と同様にApp.tsx側で一元管理する）。
  *
  * 【主な処理】
  *   1. menuItems配列を定義し、選択中(currentView)に応じてハイライト表示
@@ -14,9 +16,16 @@
  *      切り替え、設定ページへ遷移する。ヘッダーのアバター横にある設定ボタンと同じ
  *      ページへ遷移する、2つ目の入り口）。currentView==='settings' のときは選択中と
  *      同じ見た目でハイライト表示する
+ *   5. 「プロジェクト管理」項目だけは他と挙動が異なる（プロジェクト管理機能_要件定義書.md
+ *      §2.1）。他の項目のように別画面へ即座に遷移するのではなく、クリックで
+ *      その場でアコーディオン開閉し、参加中プロジェクトの一覧・選択、「＋新規プロジェクト」
+ *      「すべて管理→」への導線を表示する。ただしサイドバーが折りたたみ状態（アイコンのみ）
+ *      のときは展開表示するスペースが無いため、クリックで直接プロジェクト管理ページ
+ *      （currentView='project'）へ遷移する簡易挙動にする
  * -----------------------------------------------------------------------
  */
 import { APP_VERSION } from '../constants/app';
+import type { Project } from '../types/task';
 
 interface SidebarProps {
   currentView: string;
@@ -25,6 +34,12 @@ interface SidebarProps {
   onToggle: () => void;
   onLogout: () => void;
   onOpenSettings: () => void;
+  // 追加：プロジェクト管理のアコーディオン（要件定義書§2.1）
+  projects: Project[];
+  currentProjectId: string | null;
+  onSelectProject: (id: string) => void;
+  isProjectMenuOpen: boolean;
+  onToggleProjectMenu: () => void;
 }
 
 export default function Sidebar({
@@ -33,7 +48,12 @@ export default function Sidebar({
   isOpen,
   onToggle,
   onLogout,
-  onOpenSettings
+  onOpenSettings,
+  projects,
+  currentProjectId,
+  onSelectProject,
+  isProjectMenuOpen,
+  onToggleProjectMenu,
 }: SidebarProps) {
   // ナビゲーション項目の定義（id は App.tsx の currentView と対応）
   const menuItems = [
@@ -108,6 +128,84 @@ export default function Sidebar({
         {/* 高級ラインアイコンメニュー */}
         <nav className="p-4 space-y-1.5">
           {menuItems.map((item) => {
+            // 「プロジェクト管理」だけは特別扱い：クリックで別画面へ遷移せず、
+            // その場でアコーディオン開閉する（サイドバー折りたたみ時のみ直接遷移。上記コメント参照）
+            if (item.id === 'project') {
+              const isExpanded = isOpen && isProjectMenuOpen;
+              const isActive = currentView === item.id || isExpanded;
+              const visibleProjects = projects.filter((p) => p.status !== 'archived');
+
+              return (
+                <div key={item.id}>
+                  <button
+                    onClick={() => (isOpen ? onToggleProjectMenu() : onViewChange('project'))}
+                    aria-expanded={isExpanded}
+                    className={`w-full h-11 rounded-xl text-xs font-bold tracking-wider transition-all duration-200 flex items-center cursor-pointer relative group ${
+                      isOpen ? 'px-3 gap-3' : 'justify-center'
+                    } ${
+                      isActive
+                        ? 'bg-accent/10 text-accent border border-accent/20'
+                        : 'text-text-sub hover:bg-surface hover:text-text-main border border-transparent'
+                    }`}
+                    title={!isOpen ? item.label : undefined}
+                  >
+                    <span className={`w-9 flex-shrink-0 flex items-center justify-center transition-transform duration-200 group-hover:scale-110 ${isActive ? 'text-accent' : 'text-text-sub group-hover:text-text-main'}`}>
+                      {item.icon}
+                    </span>
+                    {isOpen && (
+                      <>
+                        <span className="flex-1 text-left overflow-hidden whitespace-nowrap font-semibold">{item.label}</span>
+                        {/* 開閉状態を示すシェブロン（開いている間は180度回転） */}
+                        <svg
+                          className={`w-3.5 h-3.5 flex-shrink-0 transition-transform duration-200 ${isProjectMenuOpen ? 'rotate-180' : ''}`}
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </>
+                    )}
+                  </button>
+
+                  {/* 展開時：参加中プロジェクトの一覧（アーカイブ済みはデフォルト非表示。§2.2）＋
+                      新規作成・一括管理ページへの導線。一覧・作成本体はステップ4で実装するため、
+                      現時点では「＋新規プロジェクト」「すべて管理→」はどちらも
+                      プロジェクト管理ページ（近日公開のプレースホルダー）へ遷移するのみ */}
+                  {isExpanded && (
+                    <div className="mt-1 ml-9 pl-3 border-l border-border-card space-y-0.5 animate-fade-in">
+                      {visibleProjects.length === 0 ? (
+                        <p className="px-2 py-1.5 text-[10px] text-text-sub font-medium">参加中のプロジェクトはありません</p>
+                      ) : (
+                        visibleProjects.map((project) => (
+                          <button
+                            key={project.id}
+                            onClick={() => onSelectProject(project.id)}
+                            className={`w-full px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center gap-2 transition-colors cursor-pointer text-left ${
+                              project.id === currentProjectId ? 'text-accent' : 'text-text-sub hover:text-text-main hover:bg-surface'
+                            }`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${project.id === currentProjectId ? 'bg-accent' : 'bg-transparent'}`} />
+                            <span className="truncate">{project.name}</span>
+                          </button>
+                        ))
+                      )}
+                      <button
+                        onClick={() => onViewChange('project')}
+                        className="w-full px-2 py-1.5 rounded-lg text-[11px] font-semibold text-text-sub hover:text-text-main hover:bg-surface transition-colors cursor-pointer text-left"
+                      >
+                        ＋ 新規プロジェクト
+                      </button>
+                      <button
+                        onClick={() => onViewChange('project')}
+                        className="w-full px-2 py-1.5 rounded-lg text-[11px] font-semibold text-text-sub hover:text-text-main hover:bg-surface transition-colors cursor-pointer text-left"
+                      >
+                        すべて管理 →
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
             const isActive = currentView === item.id;
             return (
               <button
