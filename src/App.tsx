@@ -35,9 +35,22 @@
  *      ダッシュボード／タスクボード／スケジュールの3画面はこのプロジェクトの
  *      タスクだけをSupabaseから取得して表示する（`.eq('project_id', ...)`で絞り込み。
  *      プロジェクト管理機能_要件定義書.md §1・§2.1・§4）。未選択の間はこの3画面に
- *      「プロジェクトを選択してください」という案内を出す。プロジェクト管理タブ
- *      （一覧・作成・編集本体）は次のステップで実装するため、現時点では
- *      サイドバーのアコーディオンからの参加プロジェクト選択のみに対応する
+ *      「プロジェクトを選択してください」という案内を出す。「プロジェクト管理」タブ
+ *      （currentView==='project'）では、参加プロジェクトのカード一覧・新規作成・編集・削除
+ *      （ProjectManagementView・ProjectFormModal）を提供する。検索＋ステータスタブによる
+ *      絞り込みにも対応する（§2.2〜2.3）。オーナーはカードから「メンバー管理」を開き、
+ *      メンバーの追加・削除・オーナー譲渡ができる（MemberManagementModal。§2.4・§6.1）。
+ *      オーナー以外のメンバーは「抜ける」でプロジェクトから脱退できる
+ *   9. 【ステップ6】TaskForm.tsxの編集画面には「プロジェクト」欄があり、自分が参加している
+ *      他のプロジェクトへタスクを移動できる（§2.5）。担当者・確認者の選択候補は、常に
+ *      選択中プロジェクトのメンバーに絞り込まれ、移動先のメンバーでなくなる担当者・確認者は
+ *      自動的に選択から外れる。この絞り込みに使うprojectMembersは、ログイン時点で
+ *      取得しておく（「プロジェクト管理」タブを開いていなくても使えるようにするため）
+ *  10. 【ステップ7】退会（設定＞データ）時、自分がオーナーかつ他にもメンバーがいる
+ *      プロジェクトが1件以上残っていると、通常の退会ボタンの代わりにオーナー引き継ぎ
+ *      セクション（OwnershipHandoverSection.tsx）を表示し、先にすべて新オーナーへ
+ *      譲渡させる（§6.2）。自分1人だけがオーナーのプロジェクトは、退会実行時に
+ *      delete_own_account()側でタスクごとまとめて削除される
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect, useRef } from 'react';
@@ -54,6 +67,9 @@ import { Login } from './pages/Login';
 import { ResetPassword } from './pages/ResetPassword';
 import { RejectReasonModal } from './components/RejectReasonModal';
 import { ImageLightbox } from './components/ImageLightbox';
+import ProjectManagementView from './components/project/ProjectManagementView';
+import ProjectFormModal from './components/project/ProjectFormModal';
+import MemberManagementModal from './components/project/MemberManagementModal';
 import { getTodayJstDateString } from './utils/date';
 
 // 通知ベルに表示するアラートアイテム。種類（NotificationType）はtypes/task.tsで定義し、
@@ -87,6 +103,8 @@ const initialTasks: Task[] = [
     assignees: [],
     reviewerId: undefined,
     createdBy: '', // このサンプルテンプレートのcreatedByは未使用（実際の挿入時はcurrentUserIdを使う）
+    projectId: '', // 同上：このサンプルテンプレートのprojectIdは未使用（実際の挿入時はcurrentProjectIdを使う。
+                    // handleResetSampleData参照。Task型がprojectIdを必須化したため、型を満たすためだけに追加）
   },
 ];
 
@@ -104,6 +122,7 @@ interface SupabaseTaskRow {
   reviewer_id: string | null;
   return_reason: string | null;
   created_by: string;
+  project_id: string;
   task_assignees: { user_id: string }[];
   task_subtasks: { id: string; title: string; done: boolean }[];
 }
@@ -122,6 +141,7 @@ const mapRowToTask = (row: SupabaseTaskRow): Task => ({
   returnReason: row.return_reason ?? undefined,
   subtasks: row.task_subtasks.map((s) => ({ id: s.id, title: s.title, done: s.done })),
   createdBy: row.created_by,
+  projectId: row.project_id,
 });
 
 // Supabaseから取得した1行分のプロジェクト生データの型（projectsテーブル）。
@@ -203,6 +223,30 @@ export default function App() {
   // トグルと同様、Sidebar.tsx側には状態を持たせずApp.tsxで一元管理する（規約①・ui-theming.md）
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState<boolean>(false);
 
+  // 【ステップ4：プロジェクト管理タブ】各プロジェクトのメンバー一覧（user_id・role）と
+  // タスク件数・完了数。カードの「メンバー数」「進捗％」表示に使う。当初はプロジェクト管理
+  // タブを開いたときだけ取得する設計だったが、【ステップ6】でTaskForm.tsxの担当者・確認者
+  // 候補の絞り込みにも使うようになったため、ログイン時点（isAuthenticated）でも
+  // refreshProjectSummaries()を呼ぶよう変更した（下記useEffect参照）
+  const [projectMembers, setProjectMembers] = useState<Record<string, { userId: string; role: string }[]>>({});
+  const [projectTaskCounts, setProjectTaskCounts] = useState<Record<string, { total: number; done: number }>>({});
+
+  // プロジェクト作成・編集モーダルの開閉状態と編集対象。同じ理由でApp.tsxに一元管理する
+  const [isProjectFormOpen, setIsProjectFormOpen] = useState<boolean>(false);
+  const [editingProject, setEditingProject] = useState<Project | undefined>(undefined);
+
+  // 【ステップ5：メンバー管理・オーナー譲渡UI】メンバー管理モーダルの開閉状態。
+  // 対象プロジェクトはIDだけ保持し、実体はprojectsから都度参照する（他の編集操作と同様、
+  // 削除等でprojectsが更新されても参照先がずれない）
+  const [memberModalProjectId, setMemberModalProjectId] = useState<string | null>(null);
+
+  // プロジェクト管理タブの検索・ステータスタブによる絞り込み（§2.2。ユーザー要望：
+  // 2026-08-29で「アーカイブ済みを表示」チェックボックスから置き換え）。他のフィルター系
+  // state（filterUser等）と同様、画面遷移時にリセットされる一時的な表示設定として扱い、
+  // localStorageには保存せず都度初期値から始める
+  const [projectStatusFilter, setProjectStatusFilter] = useState<'all' | ProjectStatus>('all');
+  const [projectSearchQuery, setProjectSearchQuery] = useState<string>('');
+
   // 配色テーマ（12種類）。これは複数人で共有する必要のない「個人の見た目の好み」なので、
   // 引き続きこのブラウザのlocalStorageにのみ保存する（Supabase化はしていない）。
   // デフォルトはGRAPHITE（2026-08-25変更。src/index.cssの`:root`側もGRAPHITEに合わせてある）
@@ -282,6 +326,39 @@ export default function App() {
     setProjects(((data ?? []) as SupabaseProjectRow[]).map(mapRowToProject));
   };
 
+  // 【ステップ4：プロジェクト管理タブ】カード表示用の「メンバー数」「タスク進捗」を取得する。
+  // project_members・tasksともにRLS（is_project_member）が自分の参加プロジェクト分だけを
+  // 返すため、project_idでの絞り込みは不要（refreshProjects/refreshTasksと同じ考え方）。
+  // タブを開いたときだけ呼び出す重めの集計クエリなので、ログイン直後の全画面ロードには含めない
+  const refreshProjectSummaries = async () => {
+    const [membersResult, taskStatsResult] = await Promise.all([
+      supabase.from('project_members').select('project_id, user_id, role'),
+      supabase.from('tasks').select('project_id, status'),
+    ]);
+
+    if (membersResult.error) {
+      console.error('プロジェクトメンバーの取得に失敗しました:', membersResult.error);
+    } else {
+      const membersByProject: Record<string, { userId: string; role: string }[]> = {};
+      for (const row of membersResult.data ?? []) {
+        (membersByProject[row.project_id] ??= []).push({ userId: row.user_id, role: row.role });
+      }
+      setProjectMembers(membersByProject);
+    }
+
+    if (taskStatsResult.error) {
+      console.error('タスク集計の取得に失敗しました:', taskStatsResult.error);
+    } else {
+      const countsByProject: Record<string, { total: number; done: number }> = {};
+      for (const row of taskStatsResult.data ?? []) {
+        const entry = (countsByProject[row.project_id] ??= { total: 0, done: 0 });
+        entry.total += 1;
+        if (row.status === 'done') entry.done += 1;
+      }
+      setProjectTaskCounts(countsByProject);
+    }
+  };
+
   // ログイン状態が変わったら、担当者一覧・参加プロジェクト一覧を取得し直す
   // （タスク一覧は下のuseEffectで、currentProjectIdの変化も合わせて取得し直す）
   useEffect(() => {
@@ -305,6 +382,11 @@ export default function App() {
       });
 
     refreshProjects();
+    // 【ステップ6】担当者・確認者の候補をプロジェクトのメンバーに絞り込むため（TaskForm.tsx）、
+    // 「プロジェクト管理」タブを開いていなくてもログイン時点でprojectMembersを取得しておく
+    // （元々は§9-4でプロジェクト管理タブを開いたときだけ取得する設計だったが、ダッシュボード等
+    // からタスク編集を開いた際にも必要になったため、ログイン時にも取得するよう変更）
+    refreshProjectSummaries();
 
     return () => {
       cancelled = true;
@@ -320,6 +402,14 @@ export default function App() {
     }
     refreshTasks();
   }, [isAuthenticated, currentProjectId]);
+
+  // 【ステップ4：プロジェクト管理タブ】タブを開いたとき（currentView==='project'）だけ
+  // メンバー数・タスク進捗の集計を取得し直す（サイドバーのアコーディオンでの切り替えのみを
+  // 行っている間はこのクエリを発生させない）
+  useEffect(() => {
+    if (!isAuthenticated || currentView !== 'project') return;
+    refreshProjectSummaries();
+  }, [isAuthenticated, currentView]);
 
   // 参加プロジェクト一覧を取得し直した結果、選択中プロジェクトがその一覧に
   // 含まれなくなっていた場合（メンバーから外れた・削除された等）は選択状態を解除する
@@ -345,13 +435,20 @@ export default function App() {
   // （＝確認者アカウントの通知ベルが更新されない、という形で症状が出る）。
   // 本格的な対応（Realtime導入）は別途行う想定だが、暫定策として一定間隔でタスク一覧を
   // ポーリングし直し、通知やカンバン表示がある程度追従するようにしている
+  //
+  // 【不具合修正・2026-08-29】依存配列が[isAuthenticated]のみだった際、setIntervalのコールバックが
+  // クロージャとしてタイマー作成時点のrefreshTasks（＝その時点のcurrentProjectId）を握ったまま
+  // 更新されず、プロジェクトを切り替えても「ログイン直後に選択されていたプロジェクト」のタスクを
+  // 取得し続けてしまう不具合があった（切り替え直後は正しく表示されるが、最大20秒以内に古い
+  // プロジェクトの内容で上書きされる、という形で発現）。currentProjectIdを依存配列に加え、
+  // プロジェクトが変わるたびにタイマーを作り直す（＝常に最新のrefreshTasksを使う）ことで解消
   useEffect(() => {
     if (!isAuthenticated) return;
     const intervalId = setInterval(() => {
       refreshTasks();
     }, 20000); // 20秒間隔（頻度を上げすぎるとAPI呼び出しが増えるため、通知用途としてはこの程度で妥協）
     return () => clearInterval(intervalId);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, currentProjectId]);
 
   // テーマ変更時：localStorageへ保存＋<html>にdata-theme属性を反映（CSS変数切替）。
   // 併せて、スマホ幅では自動的にサイドバーを閉じる
@@ -397,6 +494,16 @@ export default function App() {
   // 自分のプロフィール（ヘッダーのアバター表示用）
   const myProfile = users.find((u) => u.id === currentUserId);
 
+  // 【ステップ7：オーナー引き継ぎ】自分がオーナーで、かつ他にもメンバーがいる
+  // プロジェクト一覧（設定＞データ画面で、退会前に新オーナーへの譲渡を求める対象。
+  // 要件定義書§6.2）。projectMembersの更新のたびに再計算されるため、譲渡が完了して
+  // 対象が0件になれば、SettingsView.tsx側の分岐が自動的に通常の退会ボタンへ戻る
+  const projectsNeedingOwnershipHandover = projects.filter((p) => {
+    const members = projectMembers[p.id] ?? [];
+    const isOwner = members.some((m) => m.userId === currentUserId && m.role === 'owner');
+    return isOwner && members.length > 1;
+  });
+
   // 通知ベルに表示する「自分宛て」のアラート一覧。サーバー通知ではなく、
   // 現在のtasksデータから毎レンダー時に導出するシンプルな仕組み。
   // ①遅延中 ②当日締切 ③自分のタスクが差し戻された ④自分がレビュアーで承認待ち、の4種類。
@@ -438,7 +545,8 @@ export default function App() {
   const handleSaveTask = async (taskData: Omit<Task, 'id' | 'status' | 'createdBy'>) => {
     // 新規作成時はcurrentProjectIdが必須（tasks.project_idはNOT NULL制約のため。
     // プロジェクト管理機能_要件定義書.md §3.3）。編集時（editingTaskがある場合）は
-    // 既存タスクのproject_idを変更しないため対象外（プロジェクト移動欄はステップ6で対応）
+    // TaskForm.tsxの「プロジェクト」欄（§2.5・ステップ6）でtaskData.projectIdが
+    // 他プロジェクトのIDに変わっている可能性があるため、下記taskRowにそのまま含める
     if (!editingTask && !currentProjectId) {
       alert('プロジェクトが選択されていません。サイドバーからプロジェクトを選択してください。');
       return;
@@ -456,6 +564,9 @@ export default function App() {
       // （PostgREST経由では400として現れる）になるため、''もnullとして扱う（??ではなく||を使う理由）
       reviewer_id: taskData.reviewerId || null,
       return_reason: taskData.returnReason ?? null,
+      // 新規作成時は下のinsertで必ずcurrentProjectIdへ上書きされる（TaskForm側の初期値も
+      // currentProjectId基準のため通常は同じ値になるが、insert側を信頼できる値として優先する）
+      project_id: taskData.projectId,
     };
 
     let taskId: string;
@@ -590,6 +701,183 @@ export default function App() {
 
   // サイドバーの「プロジェクト管理」アコーディオンの開閉切り替え
   const handleToggleProjectMenu = () => setIsProjectMenuOpen((prev) => !prev);
+
+  // 【ステップ4：プロジェクト管理タブ】新規作成モーダルを開く（編集対象なし）
+  const handleOpenCreateProject = () => {
+    setEditingProject(undefined);
+    setIsProjectFormOpen(true);
+  };
+
+  // 既存プロジェクトの編集モーダルを開く（ProjectManagementView側でオーナーのみに表示済み）
+  const handleOpenEditProject = (project: Project) => {
+    setEditingProject(project);
+    setIsProjectFormOpen(true);
+  };
+
+  const handleCloseProjectForm = () => {
+    setIsProjectFormOpen(false);
+    setEditingProject(undefined);
+  };
+
+  // プロジェクトの新規作成・編集の保存。作成時はhandle_new_project()トリガー
+  // （supabase-migration-projects.sql）がcreated_byを自動的にオーナーとしてproject_membersへ
+  // 登録するため、ここではprojectsテーブルへのinsertのみを行えばよい。
+  // 新規作成した場合は、確認済みの仕様どおり作成したプロジェクトをそのまま選択中にする
+  //
+  // 【はまった不具合と修正】`.insert(...).select('id').single()`のRETURNINGは、SELECT用のRLS
+  // ポリシー（projects_select_member）の可視性チェックも受けるが、上記トリガーがproject_members
+  // へオーナー登録を終える前にこのチェックが走ってしまい、「作成した本人なのに作成直後は
+  // 自分のプロジェクトが見えない」という理由でRETURNINGが失敗していた（RLSの一種の
+  // 鶏と卵問題）。projects_select_memberに「auth.uid() = created_by」も許可条件として
+  // 追加することで解消済み（supabase-migration-projects-select-fix.sql参照）
+  const handleSaveProject = async (data: { name: string; description?: string; status: ProjectStatus }) => {
+    if (editingProject) {
+      const { error } = await supabase
+        .from('projects')
+        .update({ name: data.name, description: data.description ?? null, status: data.status })
+        .eq('id', editingProject.id);
+      if (error) {
+        alert('プロジェクトの更新に失敗しました: ' + error.message);
+        return;
+      }
+    } else {
+      const { data: inserted, error } = await supabase
+        .from('projects')
+        .insert({ name: data.name, description: data.description ?? null, status: data.status, created_by: currentUserId })
+        .select('id')
+        .single();
+      if (error || !inserted) {
+        alert('プロジェクトの作成に失敗しました: ' + (error?.message ?? '不明なエラー'));
+        return;
+      }
+      setCurrentProjectId(inserted.id);
+    }
+
+    await refreshProjects();
+    await refreshProjectSummaries();
+    handleCloseProjectForm();
+  };
+
+  // プロジェクトの削除（オーナーのみ。RLSの`projects_delete_owner`で保証。ProjectManagementView側でも
+  // オーナーのみに削除ボタンを表示済み。supabase.mdのルール：DB側の権限とUI側の表示を一致させる）。
+  // `tasks.project_id`は`on delete cascade`のため、配下のタスクもまとめて削除される。
+  // 元に戻せない操作のため、実行前に必ず確認ダイアログを挟む（code-style.mdのルール）
+  const handleDeleteProject = async (project: Project) => {
+    const confirmed = window.confirm(
+      `「${project.name}」を削除しますか？\nこのプロジェクト内のタスクもすべて削除されます。この操作は元に戻せません。`
+    );
+    if (!confirmed) return;
+
+    const { error } = await supabase.from('projects').delete().eq('id', project.id);
+    if (error) {
+      alert('プロジェクトの削除に失敗しました: ' + error.message);
+      return;
+    }
+
+    // 削除したプロジェクトが選択中だった場合の後始末は、既存のuseEffect
+    // （projectsから選択中プロジェクトが消えたらcurrentProjectIdをnullにする）に任せる
+    await refreshProjects();
+    await refreshProjectSummaries();
+  };
+
+  // 【ステップ5：メンバー管理・オーナー譲渡UI】メンバー管理モーダルの開閉
+  // （ProjectManagementView側でオーナーのみに「メンバー管理」ボタンを表示済み）
+  const handleOpenMemberModal = (project: Project) => setMemberModalProjectId(project.id);
+  const handleCloseMemberModal = () => setMemberModalProjectId(null);
+
+  // モーダルに渡す対象プロジェクトの実体。projects一覧から都度参照するため、
+  // 削除・編集等でprojectsが更新されてもモーダル側の表示は自動的に追従する
+  const memberModalProject = projects.find((p) => p.id === memberModalProjectId);
+
+  // メンバーの追加（オーナーのみ。RLSの`project_members_insert_owner`で保証）。
+  // 追加自体に確認ダイアログは挟まない（TaskForm.tsxの担当者選択と同様、選ぶだけの軽い操作のため）
+  const handleAddMember = async (userId: string) => {
+    if (!memberModalProjectId) return;
+    const { error } = await supabase
+      .from('project_members')
+      .insert({ project_id: memberModalProjectId, user_id: userId, role: 'member' });
+    if (error) {
+      alert('メンバーの追加に失敗しました: ' + error.message);
+      return;
+    }
+    await refreshProjectSummaries();
+  };
+
+  // メンバーの削除（オーナーのみ。RLSの`project_members_delete_owner_or_self`で保証。
+  // オーナー行自体は同ポリシーの`role <> 'owner'`条件により削除できない）
+  const handleRemoveMember = async (userId: string) => {
+    if (!memberModalProjectId) return;
+    const targetName = users.find((u) => u.id === userId)?.name ?? 'このユーザー';
+    if (!window.confirm(`「${targetName}」さんをこのプロジェクトから削除しますか？`)) return;
+
+    const { error } = await supabase
+      .from('project_members')
+      .delete()
+      .eq('project_id', memberModalProjectId)
+      .eq('user_id', userId);
+    if (error) {
+      alert('メンバーの削除に失敗しました: ' + error.message);
+      return;
+    }
+    await refreshProjectSummaries();
+  };
+
+  // オーナー譲渡（要件定義書§6.1）。呼び出し本人が現オーナーであることの検証は
+  // transfer_project_ownership()側（security definer）で行われるため、ここでは
+  // 確認ダイアログを挟んでRPCを呼ぶだけでよい。実行すると自分はメンバーに降格するため、
+  // オーナー限定の操作ボタンが出せなくなる状態を避けるためモーダルを閉じる
+  const handleTransferOwnership = async (userId: string) => {
+    if (!memberModalProjectId) return;
+    const targetName = users.find((u) => u.id === userId)?.name ?? 'このユーザー';
+    if (!window.confirm(`オーナーを「${targetName}」さんに譲渡しますか？\nあなた自身はメンバーになります。`)) return;
+
+    const { error } = await supabase.rpc('transfer_project_ownership', {
+      p_project_id: memberModalProjectId,
+      p_new_owner_id: userId,
+    });
+    if (error) {
+      alert('オーナー譲渡に失敗しました: ' + error.message);
+      return;
+    }
+    handleCloseMemberModal();
+    await refreshProjectSummaries();
+  };
+
+  // 【ステップ7：オーナー引き継ぎ】退会フロー（設定＞データ画面）からのオーナー譲渡。
+  // 上のhandleTransferOwnershipはメンバー管理モーダル専用（対象をmemberModalProjectIdから
+  // 決め、成功後にモーダルを閉じる）ため、退会フロー用に別関数として用意する。
+  // こちらはモーダルを持たず、OwnershipHandoverSection.tsx側の行ごとのエラー表示に使うため
+  // エラーメッセージ文字列（またはnull）をそのまま返す（onDeleteAccount等と同じ形式）
+  const handleTransferOwnershipForRetirement = async (projectId: string, newOwnerId: string): Promise<string | null> => {
+    const { error } = await supabase.rpc('transfer_project_ownership', {
+      p_project_id: projectId,
+      p_new_owner_id: newOwnerId,
+    });
+    if (error) return 'オーナー譲渡に失敗しました: ' + error.message;
+    await refreshProjectSummaries();
+    return null;
+  };
+
+  // プロジェクトからの脱退（オーナー以外のメンバー本人のみ。RLSの
+  // `project_members_delete_owner_or_self`で保証。オーナー本人は他の誰かへ譲渡するまで
+  // 抜けられない仕様のため、ProjectManagementView側でも非オーナーにのみ「抜ける」ボタンを
+  // 表示済み）。脱退後に選択中プロジェクトだった場合の後始末は、既存のuseEffect
+  // （projectsから選択中プロジェクトが消えたらcurrentProjectIdをnullにする）に任せる
+  const handleLeaveProject = async (project: Project) => {
+    if (!window.confirm(`「${project.name}」から抜けますか？`)) return;
+
+    const { error } = await supabase
+      .from('project_members')
+      .delete()
+      .eq('project_id', project.id)
+      .eq('user_id', currentUserId);
+    if (error) {
+      alert('脱退に失敗しました: ' + error.message);
+      return;
+    }
+    await refreshProjects();
+    await refreshProjectSummaries();
+  };
 
   // 通知ベルの種類ごとのON/OFFを切り替える（設定ページから呼ばれる）
   const handleToggleNotification = (type: NotificationType) => {
@@ -791,6 +1079,7 @@ export default function App() {
           onSelectProject={handleSelectProject}
           isProjectMenuOpen={isProjectMenuOpen}
           onToggleProjectMenu={handleToggleProjectMenu}
+          onCreateProject={handleOpenCreateProject}
         />
       </div>
 
@@ -917,9 +1206,9 @@ export default function App() {
           />
         )}
 
-        {/* グローバル操作フィルターバー：設定ページ（currentView==='settings'）にはタスクの
+        {/* グローバル操作フィルターバー：設定ページ・プロジェクト管理タブにはタスクの
             絞り込みという概念が無いため、そのタブを開いている間は非表示にする */}
-        {currentView !== 'settings' && (
+        {currentView !== 'settings' && currentView !== 'project' && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 md:px-8 py-2.5 bg-card/10 border-b border-border-card flex-shrink-0 select-none">
             {/* 担当者・カテゴリ・優先度の3つの選択を flex-wrap にし、幅の狭いスマホ画面でも
                 横はみ出し（横スクロール）せず自然に折り返すようにする。
@@ -1042,8 +1331,30 @@ export default function App() {
                   onToggleNotification={handleToggleNotification}
                   onResetSampleData={handleResetSampleData}
                   onDeleteAccount={handleDeleteAccount}
+                  projectsNeedingOwnershipHandover={projectsNeedingOwnershipHandover}
+                  projectMembers={projectMembers}
+                  users={users}
+                  currentUserId={currentUserId}
+                  onTransferOwnershipForRetirement={handleTransferOwnershipForRetirement}
                 />
               </div>
+            ) : currentView === 'project' ? (
+              <ProjectManagementView
+                projects={projects}
+                currentUserId={currentUserId}
+                projectMembers={projectMembers}
+                projectTaskCounts={projectTaskCounts}
+                statusFilter={projectStatusFilter}
+                onStatusFilterChange={setProjectStatusFilter}
+                searchQuery={projectSearchQuery}
+                onSearchChange={setProjectSearchQuery}
+                onOpenProject={handleSelectProject}
+                onCreateProject={handleOpenCreateProject}
+                onEditProject={handleOpenEditProject}
+                onDeleteProject={handleDeleteProject}
+                onManageMembers={handleOpenMemberModal}
+                onLeaveProject={handleLeaveProject}
+              />
             ) : (
               <div className="bg-card p-12 rounded-2xl border border-border-card text-center animate-fade-in">
                 <h2 className="text-md font-bold uppercase tracking-wider mb-2 text-accent">近日公開</h2>
@@ -1060,12 +1371,31 @@ export default function App() {
         onAddTask={handleSaveTask}
         users={users}
         currentUserId={currentUserId}
+        projects={projects}
+        projectMembers={projectMembers}
+        currentProjectId={currentProjectId}
       />
       {/* 一番底に新設モーダルをマウント（設定は独立したページになったため、ここにはマウントしない） */}
       <RejectReasonModal
         isOpen={rejectTargetId !== null}
         onClose={handleCloseRejectModal}
         onSubmit={handleConfirmReject}
+      />
+      <ProjectFormModal
+        isOpen={isProjectFormOpen}
+        editingProject={editingProject}
+        onClose={handleCloseProjectForm}
+        onSubmit={handleSaveProject}
+      />
+      <MemberManagementModal
+        isOpen={memberModalProjectId !== null}
+        project={memberModalProject}
+        members={memberModalProjectId ? (projectMembers[memberModalProjectId] ?? []) : []}
+        users={users}
+        onClose={handleCloseMemberModal}
+        onAddMember={handleAddMember}
+        onRemoveMember={handleRemoveMember}
+        onTransferOwnership={handleTransferOwnership}
       />
     </div>
   );

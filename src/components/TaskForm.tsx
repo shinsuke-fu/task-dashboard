@@ -19,37 +19,70 @@
  *     受け取る形に変更。このコンポーネント内でのハードコードは廃止した。
  *   ・担当者・確認者のデータはSupabase（task_assignees / tasksテーブル）に
  *     保存され、他ユーザーとも共有される。
+ *
+ * 【ステップ6：プロジェクト移動欄（プロジェクト管理機能_要件定義書.md §2.5）】
+ *   ・作業担当者・確認者の選択候補は、常に「選択中プロジェクト」のメンバーに絞り込む
+ *     （プロジェクト機能導入前は全登録ユーザーが対象だったが、プロジェクトという境界が
+ *     できた以上、担当できる人もそのプロジェクトのメンバーに限定するのが自然なため）
+ *   ・編集画面にのみ「プロジェクト」欄を表示し、自分が参加している他のプロジェクトへ
+ *     タスクを移動できる（新規作成時は常にcurrentProjectId固定で、欄自体を出さない）
+ *   ・プロジェクトを変更すると、移動先のメンバーでなくなる担当者・確認者は自動的に
+ *     選択から外れる（§8.3で仮決めした「自動でクリアする」方式。全リセットではなく、
+ *     メンバーでなくなった人だけを外す）
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect } from 'react';
-import type { Task, User, Subtask } from '../types/task';
+import type { Task, User, Subtask, Project } from '../types/task';
 import { getTodayJstDateString } from '../utils/date';
+
+interface ProjectMemberInfo {
+  userId: string;
+  role: string;
+}
 
 interface TaskFormProps {
   isOpen: boolean;
   editingTask?: Task;
   users: User[];
   currentUserId: string;
+  // 【ステップ6】自分が参加しているプロジェクト一覧（「プロジェクト」欄の選択肢）と、
+  // プロジェクトごとのメンバー一覧（担当者・確認者の候補の絞り込みに使用）
+  projects: Project[];
+  projectMembers: Record<string, ProjectMemberInfo[]>;
+  // 新規作成時、タスクの所属プロジェクトは常にこれに固定する
+  currentProjectId: string | null;
   onClose: () => void;
   // createdBy（作成者）はこのフォームでは扱わない。新規作成時はApp.tsx側が
   // 挿入時にcurrentUserIdから設定するため、ここではOmitで除外している
   onAddTask: (task: Omit<Task, 'id' | 'status' | 'createdBy'>) => void;
 }
 
-export default function TaskForm({ isOpen, editingTask, users, currentUserId, onClose, onAddTask }: TaskFormProps) {
+export default function TaskForm({
+  isOpen,
+  editingTask,
+  users,
+  currentUserId,
+  projects,
+  projectMembers,
+  currentProjectId,
+  onClose,
+  onAddTask,
+}: TaskFormProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<'開発' | 'デザイン' | 'マーケ' | 'その他'>('開発');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [endDate, setEndDate] = useState('');
 
+  // 【ステップ6】タスクが属するプロジェクト。編集画面の「プロジェクト」欄でのみ変更できる
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(currentProjectId ?? '');
+
   // 作業担当者（複数選択可）。新規作成時は自分のみを選択した状態を初期値とする
   const [assigneeIds, setAssigneeIds] = useState<string[]>([currentUserId]);
 
-  // 確認者（レビュアー）を管理するステート（デフォルトは自分以外の先頭ユーザー）
-  const [reviewerId, setReviewerId] = useState<string>(
-    users.find((u) => u.id !== currentUserId)?.id ?? ''
-  );
+  // 確認者（レビュアー）を管理するステート（実際の初期値はisOpenの副作用でセットする。
+  // プロジェクトのメンバーに絞り込む必要があるため、初期化ロジックを下のuseEffectへ統一した）
+  const [reviewerId, setReviewerId] = useState<string>('');
 
   // サブタスク（チェックリスト）。承認フローとは独立した、担当者向けの簡易メモ
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
@@ -59,6 +92,13 @@ export default function TaskForm({ isOpen, editingTask, users, currentUserId, on
   // isOpen が「true になった瞬間」だけ確実に初期化し、編集中の中途半端な上書きループを徹底遮断
   useEffect(() => {
     if (!isOpen) return;
+
+    // 【ステップ6】このタスクが属するプロジェクト（編集時は既存の値、新規作成時は
+    // currentProjectId固定）。担当者・確認者の初期候補も、このプロジェクトのメンバーに絞る
+    const initialProjectId = editingTask ? editingTask.projectId : (currentProjectId ?? '');
+    setSelectedProjectId(initialProjectId);
+    const initialMemberIds = new Set((projectMembers[initialProjectId] ?? []).map((m) => m.userId));
+    const initialCandidates = users.filter((u) => initialMemberIds.has(u.id));
 
     if (editingTask) {
       setTitle(editingTask.title);
@@ -73,8 +113,8 @@ export default function TaskForm({ isOpen, editingTask, users, currentUserId, on
           ? editingTask.assignees
           : [currentUserId]
       );
-      // 既存タスクに確認者が設定されていればそれをセット（無ければ自分以外の先頭ユーザー）
-      setReviewerId(editingTask.reviewerId || users.find((u) => u.id !== currentUserId)?.id || '');
+      // 既存タスクに確認者が設定されていればそれをセット（無ければプロジェクトメンバーの中から自分以外の先頭ユーザー）
+      setReviewerId(editingTask.reviewerId || initialCandidates.find((u) => u.id !== currentUserId)?.id || '');
       // 既存タスクのサブタスクをセット（無ければ空リスト）
       setSubtasks(editingTask.subtasks || []);
     } else {
@@ -84,12 +124,12 @@ export default function TaskForm({ isOpen, editingTask, users, currentUserId, on
       setPriority('medium');
       setEndDate(getTodayJstDateString()); // 期日の初期値は「今日」（JST基準）
       setAssigneeIds([currentUserId]); // 担当者初期値：自分のみ
-      setReviewerId(users.find((u) => u.id !== currentUserId)?.id ?? ''); // デフォルト確認者：自分以外の先頭ユーザー
+      setReviewerId(initialCandidates.find((u) => u.id !== currentUserId)?.id ?? ''); // デフォルト確認者：プロジェクトメンバーの中から自分以外の先頭ユーザー
       setSubtasks([]); // サブタスクは空から開始
     }
     setNewSubtaskTitle(''); // 入力欄は常にリセット
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]); // 依存配列を isOpen のみに絞ることで、送信時の逆流リセットバグを完全消滅させます（currentUserId/usersは意図的に含めない）
+  }, [isOpen]); // 依存配列を isOpen のみに絞ることで、送信時の逆流リセットバグを完全消滅させます（currentUserId/users/projects/projectMembers/currentProjectIdは意図的に含めない）
 
   // 担当者チェックボックスの選択・解除を切り替える。
   // 担当者は最低1人必須のため、残り1人の状態からの解除操作は無視する
@@ -101,6 +141,16 @@ export default function TaskForm({ isOpen, editingTask, users, currentUserId, on
       }
       return [...prev, userId];
     });
+  };
+
+  // 【ステップ6】プロジェクト移動欄（編集時のみ表示）の変更処理。移動先プロジェクトの
+  // メンバーでなくなる担当者・確認者は自動的に選択から外す（§8.3・全リセットではなく
+  // メンバーでなくなった人だけを外す方式）
+  const handleProjectChange = (newProjectId: string) => {
+    setSelectedProjectId(newProjectId);
+    const newMemberIds = new Set((projectMembers[newProjectId] ?? []).map((m) => m.userId));
+    setAssigneeIds((prev) => prev.filter((id) => newMemberIds.has(id)));
+    setReviewerId((prev) => (newMemberIds.has(prev) ? prev : ''));
   };
 
   // サブタスクを1件追加する（入力欄が空・空白のみの場合は何もしない）
@@ -122,28 +172,35 @@ export default function TaskForm({ isOpen, editingTask, users, currentUserId, on
     setSubtasks(prev => prev.filter(s => s.id !== id));
   };
 
+  // 【ステップ6】担当者・確認者の候補は、選択中プロジェクトのメンバーに絞り込む
+  // （プロジェクト機能導入前は全登録ユーザーが対象だったが、§2.5対応にあわせて変更）
+  const projectMemberIds = new Set((projectMembers[selectedProjectId] ?? []).map((m) => m.userId));
+  const assigneeCandidates = users.filter((u) => projectMemberIds.has(u.id));
+
   // 確認者（レビュアー）が、直後に自分自身が担当者として選ばれてしまった場合に
   // 「担当者＝確認者」という矛盾状態にならないよう、選べる候補から自動的に外す
   useEffect(() => {
     if (assigneeIds.includes(reviewerId)) {
-      const fallback = users.find(user => !assigneeIds.includes(user.id));
+      const fallback = assigneeCandidates.find(user => !assigneeIds.includes(user.id));
       if (fallback) setReviewerId(fallback.id);
     }
-  }, [assigneeIds, reviewerId, users]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assigneeIds, reviewerId, selectedProjectId]);
 
   if (!isOpen) return null;
 
   // 担当者に選ばれていないユーザーのみを確認者（レビュアー）候補として抽出
   // （自分で自分の作業を承認できてしまう状態を防ぐため）
-  // 既知の制約：全ユーザーを担当者に選んだ場合、確認者の候補が0人になる。
-  // 登録ユーザー数が少ないうちは起こり得るため、将来的には候補ゼロを防ぐ
+  // 既知の制約：プロジェクトの全メンバーを担当者に選んだ場合、確認者の候補が0人になる。
+  // メンバー数が少ないうちは起こり得るため、将来的には候補ゼロを防ぐ
   // 制御（例：最低1人は担当者から除外させる等）を検討する想定。
-  const reviewerCandidates = users.filter(user => !assigneeIds.includes(user.id));
+  const reviewerCandidates = assigneeCandidates.filter(user => !assigneeIds.includes(user.id));
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
     if (assigneeIds.length === 0) return; // 担当者は最低1人必須（通常はUI側で常に保証済み）
+    if (!selectedProjectId) return; // プロジェクト未選択では保存させない（新規作成時のガードはApp.tsx側のalertで別途表示済み）
 
     // 親の型定義(string等)に安全に適合させ、最新の値を確実に最優先で送信
     onAddTask({
@@ -156,6 +213,7 @@ export default function TaskForm({ isOpen, editingTask, users, currentUserId, on
       assignees: assigneeIds,  // チェックボックスで選択された担当者ID配列をそのまま送信
       reviewerId: reviewerId,  // 選択した確認者（レビュアー）のIDを直通バインド
       subtasks: subtasks,      // サブタスク（チェックリスト）をそのまま送信
+      projectId: selectedProjectId, // 【ステップ6】所属プロジェクト（編集時は「プロジェクト」欄の選択値）
     });
   };
 
@@ -195,6 +253,26 @@ export default function TaskForm({ isOpen, editingTask, users, currentUserId, on
               className="w-full bg-base border border-border-card rounded-xl p-3 text-text-main focus:outline-none focus:border-accent resize-none leading-relaxed" 
             />
           </div>
+
+          {/* 【ステップ6】プロジェクト移動欄：編集時のみ表示（新規作成時は常にcurrentProjectId固定）。
+              §2.5・要件定義書。移動先のメンバーでなくなる担当者・確認者は自動的に選択から外れる */}
+          {editingTask && (
+            <div>
+              <label className="block text-[10px] font-black text-text-sub uppercase mb-1">プロジェクト</label>
+              <select
+                value={selectedProjectId}
+                onChange={(e) => handleProjectChange(e.target.value)}
+                className="w-full h-9 bg-base border border-border-card rounded-xl px-2 font-bold text-text-main cursor-pointer"
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-text-sub mt-1.5 pl-1 font-medium">
+                ※移動先プロジェクトのメンバーでなくなる担当者・確認者は自動的に選択から外れます。
+              </p>
+            </div>
+          )}
 
           {/* サブタスク（チェックリスト）：承認フローとは独立した、担当者向けの簡易メモ */}
           <div>
@@ -274,7 +352,7 @@ export default function TaskForm({ isOpen, editingTask, users, currentUserId, on
               作業担当者（複数選択可）
             </label>
             <div className="flex flex-wrap gap-2">
-              {users.map(user => {
+              {assigneeCandidates.map(user => {
                 const isSelected = assigneeIds.includes(user.id);
                 return (
                   <label
@@ -297,7 +375,8 @@ export default function TaskForm({ isOpen, editingTask, users, currentUserId, on
               })}
             </div>
             <p className="text-[10px] text-text-sub mt-1.5 pl-1 font-medium">
-              ※選択した担当者にはSupabase上でタスクが共有されます（保存時にtask_assigneesテーブルへ反映）。
+              ※選択できるのはこのプロジェクトのメンバーのみです。選択した担当者にはSupabase上で
+              タスクが共有されます（保存時にtask_assigneesテーブルへ反映）。
             </p>
           </div>
 

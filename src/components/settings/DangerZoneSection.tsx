@@ -15,9 +15,15 @@
  *   auth.usersレコードも直接は削除できない（管理者権限が必要）ため、
  *   `security definer`のPostgres関数`delete_own_account()`をRPC経由で
  *   呼び出す方式にしている（supabase-migration-account-deletion.sql参照）。
- *   この関数側で「自分が作成したタスクの削除」「自分がreviewerに設定されている
- *   他人のタスクのreviewer_id解除」「auth.usersからの削除（profilesへの
- *   カスケードも含む）」までまとめて行う。
+ *   この関数側で「自分1人だけがオーナーのプロジェクトの削除」「自分が作成した
+ *   タスクの削除」「自分がreviewerに設定されている他人のタスクのreviewer_id解除」
+ *   「auth.usersからの削除（profilesへのカスケードも含む）」までまとめて行う。
+ *
+ * 【ステップ7：オーナー引き継ぎとの関係】
+ *   このコンポーネントは、自分がオーナーかつ他にもメンバーがいるプロジェクトが
+ *   0件のときだけ表示される（1件以上ある場合はSettingsView.tsx側の分岐で
+ *   OwnershipHandoverSection.tsxに差し替わる）。そのため、ここでの退会実行時に
+ *   巻き込まれるオーナープロジェクトは「自分1人だけ」のものだけで済む
  * -----------------------------------------------------------------------
  */
 import React, { useState } from 'react';
@@ -36,7 +42,8 @@ export const DangerZoneSection: React.FC<DangerZoneSectionProps> = ({ onDeleteAc
 
     const confirmed = window.confirm(
       '本当にアカウントを削除しますか？\n\n' +
-      'あなたが作成したタスク・プロフィール・ログイン情報がすべて削除され、元に戻すことはできません。'
+      'あなたが作成したタスク・プロフィール・ログイン情報がすべて削除され、元に戻すことはできません。\n' +
+      'また、あなたが1人だけでオーナーを務めているプロジェクトは、タスクごと削除されます。'
     );
     if (!confirmed) return;
 
@@ -55,7 +62,8 @@ export const DangerZoneSection: React.FC<DangerZoneSectionProps> = ({ onDeleteAc
     <div className="bg-card border border-rose-500/20 rounded-xl p-5 md:p-6 shadow-xs mt-6">
       <label className="block text-[10px] font-black text-rose-400 uppercase mb-3">退会（アカウント削除）</label>
       <p className="text-[10px] text-text-sub mb-3 leading-relaxed">
-        アカウントとあなたが作成したタスク・プロフィールをすべて削除します。この操作は元に戻せません。
+        アカウントとあなたが作成したタスク・プロフィールをすべて削除します。あなたが1人だけで
+        オーナーを務めているプロジェクトも、タスクごと削除されます。この操作は元に戻せません。
       </p>
       <div className="flex flex-col sm:flex-row gap-2 max-w-sm">
         <input

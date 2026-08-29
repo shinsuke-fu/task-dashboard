@@ -47,6 +47,8 @@ export interface Task {
   returnReason?: string;  // 追加：差し戻し理由のコメント
   subtasks?: Subtask[];   // 追加：サブタスク（チェックリスト）。任意
   createdBy: string;      // 追加：作成者のUser ID（削除ボタンの表示可否判定に使用。RLSの削除権限と揃える）
+  projectId: string;      // 追加：所属プロジェクトのID（NOT NULL）。TaskForm.tsxの「プロジェクト」欄
+                           // （ステップ6・要件定義書§2.5）で他プロジェクトへ移動できる
 }
 
 // 選択可能な配色テーマ（src/index.css の [data-theme="..."] に対応）

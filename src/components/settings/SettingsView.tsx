@@ -31,15 +31,20 @@
  *   3. 通知設定：通知ベルの4種類（遅延中／当日締切／差し戻された／承認待ち）を
  *      それぞれON/OFFできる
  *   4. データ：サンプルデータへのリセット、および退会（アカウント削除。実処理は
- *      DangerZoneSection.tsxに分離）
+ *      DangerZoneSection.tsxに分離）。【ステップ7】自分がオーナーかつ他にもメンバーが
+ *      いるプロジェクトが1件以上残っている間は、DangerZoneSection（退会ボタン）の
+ *      代わりにOwnershipHandoverSection.tsx（オーナー引き継ぎセクション）を表示し、
+ *      先に新オーナーへの譲渡を済ませないと退会ボタンにたどり着けないようにする
+ *      （プロジェクト管理機能_要件定義書.md §6.2）
  *   5. アプリについて：バージョン・技術スタック・主な機能・リンク等の簡易紹介
  *      （実内容はAboutSection.tsxに分離。社内共有会等で画面をそのまま見せる用途を想定）
  * -----------------------------------------------------------------------
  */
 import React, { useState } from 'react';
-import type { AppTheme, NotificationType } from '../../types/task';
+import type { AppTheme, NotificationType, Project, User } from '../../types/task';
 import { ProfileSection } from './ProfileSection';
 import { DangerZoneSection } from './DangerZoneSection';
+import { OwnershipHandoverSection } from './OwnershipHandoverSection';
 import { AboutSection } from './AboutSection';
 
 interface SettingsViewProps {
@@ -55,6 +60,13 @@ interface SettingsViewProps {
   onToggleNotification: (type: NotificationType) => void;
   onResetSampleData: () => void;
   onDeleteAccount: (password: string) => Promise<string | null>;
+  // 【ステップ7：オーナー引き継ぎ】自分がオーナーかつ他にもメンバーがいるプロジェクト
+  // （App.tsx側で絞り込み済み）。0件の間は通常通りDangerZoneSectionを表示する
+  projectsNeedingOwnershipHandover: Project[];
+  projectMembers: Record<string, { userId: string; role: string }[]>;
+  users: User[];
+  currentUserId: string;
+  onTransferOwnershipForRetirement: (projectId: string, newOwnerId: string) => Promise<string | null>;
 }
 
 // 設定ページのカテゴリタブ
@@ -89,6 +101,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onToggleNotification,
   onResetSampleData,
   onDeleteAccount,
+  projectsNeedingOwnershipHandover,
+  projectMembers,
+  users,
+  currentUserId,
+  onTransferOwnershipForRetirement,
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
 
@@ -192,7 +209,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </p>
           </div>
 
-          <DangerZoneSection onDeleteAccount={onDeleteAccount} />
+          {projectsNeedingOwnershipHandover.length > 0 ? (
+            <OwnershipHandoverSection
+              projects={projectsNeedingOwnershipHandover}
+              projectMembers={projectMembers}
+              users={users}
+              currentUserId={currentUserId}
+              onTransferOwnership={onTransferOwnershipForRetirement}
+            />
+          ) : (
+            <DangerZoneSection onDeleteAccount={onDeleteAccount} />
+          )}
         </div>
       )}
 
