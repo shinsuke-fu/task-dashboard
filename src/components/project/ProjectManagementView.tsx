@@ -18,11 +18,13 @@
  *   3. 「開く」ボタンで該当プロジェクトを選択中プロジェクトに切り替える（App.tsx側の
  *      handleSelectProjectを再利用）。「編集」ボタンはオーナーのみに表示する
  *      （projects_update_ownerのRLSと一致させる。supabase.mdのルール）
- *   4. データの取得・作成・編集・削除の実処理はすべてApp.tsx側に委譲し、このコンポーネントは
- *      Propsで受け取った内容を表示するだけ（規約①：状態はApp.tsxに一元化）。削除の確認
- *      ダイアログもApp.tsx側（handleDeleteProject）で行う
- *   5. 「削除」ボタンは「編集」と同様オーナーのみに表示する（projects_delete_ownerのRLSと
- *      一致させる）。メンバー管理は次のステップ（ステップ5）で追加予定
+ *   4. データの取得・作成・編集・削除・メンバー管理の実処理はすべてApp.tsx側に委譲し、
+ *      このコンポーネントはPropsで受け取った内容を表示するだけ（規約①：状態はApp.tsxに
+ *      一元化）。削除・メンバー削除・オーナー譲渡・脱退の確認ダイアログもApp.tsx側で行う
+ *   5. 「編集」「メンバー管理」「削除」はオーナーのみに表示する（projects_update_owner等の
+ *      RLSと一致させる）。オーナー以外のメンバーには、代わりに「抜ける」ボタンを表示する
+ *      （§2.4・§7.4。オーナー本人は他の誰かへ譲渡するまで抜けられない）。メンバー管理の
+ *      実体（一覧・追加・削除・オーナー譲渡）はMemberManagementModal.tsxが担う
  * -----------------------------------------------------------------------
  */
 import type { Project } from '../../types/task';
@@ -52,6 +54,8 @@ interface ProjectManagementViewProps {
   onCreateProject: () => void;
   onEditProject: (project: Project) => void;
   onDeleteProject: (project: Project) => void;
+  onManageMembers: (project: Project) => void;
+  onLeaveProject: (project: Project) => void;
 }
 
 const statusLabels: Record<Project['status'], string> = {
@@ -75,6 +79,8 @@ export default function ProjectManagementView({
   onCreateProject,
   onEditProject,
   onDeleteProject,
+  onManageMembers,
+  onLeaveProject,
 }: ProjectManagementViewProps) {
   // 「すべて」タブはアーカイブ以外の全件（アーカイブ済みは既定で隠す方針を維持。§2.2）。
   // 検索は名前の部分一致（大文字小文字を区別しない）。表示順は参加プロジェクト一覧
@@ -195,7 +201,7 @@ export default function ProjectManagementView({
                 </div>
 
                 <div className="flex items-center justify-end gap-2 pt-1 mt-auto">
-                  {/* 編集はオーナーのみ（projects_update_ownerのRLSと一致させる） */}
+                  {/* 編集・メンバー管理・削除はオーナーのみ（projects_update_owner等のRLSと一致させる） */}
                   {isOwner && (
                     <button
                       onClick={() => onDeleteProject(project)}
@@ -206,10 +212,27 @@ export default function ProjectManagementView({
                   )}
                   {isOwner && (
                     <button
+                      onClick={() => onManageMembers(project)}
+                      className="h-8 px-3 bg-surface hover:bg-base border border-border-card/50 rounded-lg text-[10px] font-bold text-text-sub hover:text-text-main transition cursor-pointer"
+                    >
+                      メンバー管理
+                    </button>
+                  )}
+                  {isOwner && (
+                    <button
                       onClick={() => onEditProject(project)}
                       className="h-8 px-3 bg-surface hover:bg-base border border-border-card/50 rounded-lg text-[10px] font-bold text-text-sub hover:text-text-main transition cursor-pointer"
                     >
                       編集
+                    </button>
+                  )}
+                  {/* 抜ける：オーナー以外のメンバーのみ（オーナーは譲渡するまで抜けられない。§7.4） */}
+                  {!isOwner && (
+                    <button
+                      onClick={() => onLeaveProject(project)}
+                      className="h-8 px-3 bg-surface hover:bg-rose-50 border border-border-card/50 hover:border-rose-200 rounded-lg text-[10px] font-bold text-text-sub hover:text-rose-600 transition cursor-pointer"
+                    >
+                      抜ける
                     </button>
                   )}
                   <button

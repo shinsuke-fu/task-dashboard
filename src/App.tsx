@@ -38,7 +38,9 @@
  *      「プロジェクトを選択してください」という案内を出す。「プロジェクト管理」タブ
  *      （currentView==='project'）では、参加プロジェクトのカード一覧・新規作成・編集・削除
  *      （ProjectManagementView・ProjectFormModal）を提供する。検索＋ステータスタブによる
- *      絞り込みにも対応する（§2.2〜2.3。メンバー管理・オーナー譲渡は未実装で次のステップ）
+ *      絞り込みにも対応する（§2.2〜2.3）。オーナーはカードから「メンバー管理」を開き、
+ *      メンバーの追加・削除・オーナー譲渡ができる（MemberManagementModal。§2.4・§6.1）。
+ *      オーナー以外のメンバーは「抜ける」でプロジェクトから脱退できる
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect, useRef } from 'react';
@@ -57,6 +59,7 @@ import { RejectReasonModal } from './components/RejectReasonModal';
 import { ImageLightbox } from './components/ImageLightbox';
 import ProjectManagementView from './components/project/ProjectManagementView';
 import ProjectFormModal from './components/project/ProjectFormModal';
+import MemberManagementModal from './components/project/MemberManagementModal';
 import { getTodayJstDateString } from './utils/date';
 
 // 通知ベルに表示するアラートアイテム。種類（NotificationType）はtypes/task.tsで定義し、
@@ -215,6 +218,11 @@ export default function App() {
   // プロジェクト作成・編集モーダルの開閉状態と編集対象。同じ理由でApp.tsxに一元管理する
   const [isProjectFormOpen, setIsProjectFormOpen] = useState<boolean>(false);
   const [editingProject, setEditingProject] = useState<Project | undefined>(undefined);
+
+  // 【ステップ5：メンバー管理・オーナー譲渡UI】メンバー管理モーダルの開閉状態。
+  // 対象プロジェクトはIDだけ保持し、実体はprojectsから都度参照する（他の編集操作と同様、
+  // 削除等でprojectsが更新されても参照先がずれない）
+  const [memberModalProjectId, setMemberModalProjectId] = useState<string | null>(null);
 
   // プロジェクト管理タブの検索・ステータスタブによる絞り込み（§2.2。ユーザー要望：
   // 2026-08-29で「アーカイブ済みを表示」チェックボックスから置き換え）。他のフィルター系
@@ -730,6 +738,90 @@ export default function App() {
     await refreshProjectSummaries();
   };
 
+  // 【ステップ5：メンバー管理・オーナー譲渡UI】メンバー管理モーダルの開閉
+  // （ProjectManagementView側でオーナーのみに「メンバー管理」ボタンを表示済み）
+  const handleOpenMemberModal = (project: Project) => setMemberModalProjectId(project.id);
+  const handleCloseMemberModal = () => setMemberModalProjectId(null);
+
+  // モーダルに渡す対象プロジェクトの実体。projects一覧から都度参照するため、
+  // 削除・編集等でprojectsが更新されてもモーダル側の表示は自動的に追従する
+  const memberModalProject = projects.find((p) => p.id === memberModalProjectId);
+
+  // メンバーの追加（オーナーのみ。RLSの`project_members_insert_owner`で保証）。
+  // 追加自体に確認ダイアログは挟まない（TaskForm.tsxの担当者選択と同様、選ぶだけの軽い操作のため）
+  const handleAddMember = async (userId: string) => {
+    if (!memberModalProjectId) return;
+    const { error } = await supabase
+      .from('project_members')
+      .insert({ project_id: memberModalProjectId, user_id: userId, role: 'member' });
+    if (error) {
+      alert('メンバーの追加に失敗しました: ' + error.message);
+      return;
+    }
+    await refreshProjectSummaries();
+  };
+
+  // メンバーの削除（オーナーのみ。RLSの`project_members_delete_owner_or_self`で保証。
+  // オーナー行自体は同ポリシーの`role <> 'owner'`条件により削除できない）
+  const handleRemoveMember = async (userId: string) => {
+    if (!memberModalProjectId) return;
+    const targetName = users.find((u) => u.id === userId)?.name ?? 'このユーザー';
+    if (!window.confirm(`「${targetName}」さんをこのプロジェクトから削除しますか？`)) return;
+
+    const { error } = await supabase
+      .from('project_members')
+      .delete()
+      .eq('project_id', memberModalProjectId)
+      .eq('user_id', userId);
+    if (error) {
+      alert('メンバーの削除に失敗しました: ' + error.message);
+      return;
+    }
+    await refreshProjectSummaries();
+  };
+
+  // オーナー譲渡（要件定義書§6.1）。呼び出し本人が現オーナーであることの検証は
+  // transfer_project_ownership()側（security definer）で行われるため、ここでは
+  // 確認ダイアログを挟んでRPCを呼ぶだけでよい。実行すると自分はメンバーに降格するため、
+  // オーナー限定の操作ボタンが出せなくなる状態を避けるためモーダルを閉じる
+  const handleTransferOwnership = async (userId: string) => {
+    if (!memberModalProjectId) return;
+    const targetName = users.find((u) => u.id === userId)?.name ?? 'このユーザー';
+    if (!window.confirm(`オーナーを「${targetName}」さんに譲渡しますか？\nあなた自身はメンバーになります。`)) return;
+
+    const { error } = await supabase.rpc('transfer_project_ownership', {
+      p_project_id: memberModalProjectId,
+      p_new_owner_id: userId,
+    });
+    if (error) {
+      alert('オーナー譲渡に失敗しました: ' + error.message);
+      return;
+    }
+    handleCloseMemberModal();
+    await refreshProjectSummaries();
+  };
+
+  // プロジェクトからの脱退（オーナー以外のメンバー本人のみ。RLSの
+  // `project_members_delete_owner_or_self`で保証。オーナー本人は他の誰かへ譲渡するまで
+  // 抜けられない仕様のため、ProjectManagementView側でも非オーナーにのみ「抜ける」ボタンを
+  // 表示済み）。脱退後に選択中プロジェクトだった場合の後始末は、既存のuseEffect
+  // （projectsから選択中プロジェクトが消えたらcurrentProjectIdをnullにする）に任せる
+  const handleLeaveProject = async (project: Project) => {
+    if (!window.confirm(`「${project.name}」から抜けますか？`)) return;
+
+    const { error } = await supabase
+      .from('project_members')
+      .delete()
+      .eq('project_id', project.id)
+      .eq('user_id', currentUserId);
+    if (error) {
+      alert('脱退に失敗しました: ' + error.message);
+      return;
+    }
+    await refreshProjects();
+    await refreshProjectSummaries();
+  };
+
   // 通知ベルの種類ごとのON/OFFを切り替える（設定ページから呼ばれる）
   const handleToggleNotification = (type: NotificationType) => {
     setNotificationSettings(prev => ({ ...prev, [type]: !prev[type] }));
@@ -1198,6 +1290,8 @@ export default function App() {
                 onCreateProject={handleOpenCreateProject}
                 onEditProject={handleOpenEditProject}
                 onDeleteProject={handleDeleteProject}
+                onManageMembers={handleOpenMemberModal}
+                onLeaveProject={handleLeaveProject}
               />
             ) : (
               <div className="bg-card p-12 rounded-2xl border border-border-card text-center animate-fade-in">
@@ -1227,6 +1321,16 @@ export default function App() {
         editingProject={editingProject}
         onClose={handleCloseProjectForm}
         onSubmit={handleSaveProject}
+      />
+      <MemberManagementModal
+        isOpen={memberModalProjectId !== null}
+        project={memberModalProject}
+        members={memberModalProjectId ? (projectMembers[memberModalProjectId] ?? []) : []}
+        users={users}
+        onClose={handleCloseMemberModal}
+        onAddMember={handleAddMember}
+        onRemoveMember={handleRemoveMember}
+        onTransferOwnership={handleTransferOwnership}
       />
     </div>
   );
