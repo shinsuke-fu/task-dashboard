@@ -35,9 +35,10 @@
  *      ダッシュボード／タスクボード／スケジュールの3画面はこのプロジェクトの
  *      タスクだけをSupabaseから取得して表示する（`.eq('project_id', ...)`で絞り込み。
  *      プロジェクト管理機能_要件定義書.md §1・§2.1・§4）。未選択の間はこの3画面に
- *      「プロジェクトを選択してください」という案内を出す。プロジェクト管理タブ
- *      （一覧・作成・編集本体）は次のステップで実装するため、現時点では
- *      サイドバーのアコーディオンからの参加プロジェクト選択のみに対応する
+ *      「プロジェクトを選択してください」という案内を出す。「プロジェクト管理」タブ
+ *      （currentView==='project'）では、参加プロジェクトのカード一覧・新規作成・編集・削除
+ *      （ProjectManagementView・ProjectFormModal）を提供する。検索＋ステータスタブによる
+ *      絞り込みにも対応する（§2.2〜2.3。メンバー管理・オーナー譲渡は未実装で次のステップ）
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect, useRef } from 'react';
@@ -54,6 +55,8 @@ import { Login } from './pages/Login';
 import { ResetPassword } from './pages/ResetPassword';
 import { RejectReasonModal } from './components/RejectReasonModal';
 import { ImageLightbox } from './components/ImageLightbox';
+import ProjectManagementView from './components/project/ProjectManagementView';
+import ProjectFormModal from './components/project/ProjectFormModal';
 import { getTodayJstDateString } from './utils/date';
 
 // 通知ベルに表示するアラートアイテム。種類（NotificationType）はtypes/task.tsで定義し、
@@ -203,6 +206,23 @@ export default function App() {
   // トグルと同様、Sidebar.tsx側には状態を持たせずApp.tsxで一元管理する（規約①・ui-theming.md）
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState<boolean>(false);
 
+  // 【ステップ4：プロジェクト管理タブ】各プロジェクトのメンバー一覧（user_id・role）と
+  // タスク件数・完了数。カードの「メンバー数」「進捗％」表示に使う。プロジェクト管理タブを
+  // 開いたときだけrefreshProjectSummaries()で取得する（毎回の全画面ロードには含めない）
+  const [projectMembers, setProjectMembers] = useState<Record<string, { userId: string; role: string }[]>>({});
+  const [projectTaskCounts, setProjectTaskCounts] = useState<Record<string, { total: number; done: number }>>({});
+
+  // プロジェクト作成・編集モーダルの開閉状態と編集対象。同じ理由でApp.tsxに一元管理する
+  const [isProjectFormOpen, setIsProjectFormOpen] = useState<boolean>(false);
+  const [editingProject, setEditingProject] = useState<Project | undefined>(undefined);
+
+  // プロジェクト管理タブの検索・ステータスタブによる絞り込み（§2.2。ユーザー要望：
+  // 2026-08-29で「アーカイブ済みを表示」チェックボックスから置き換え）。他のフィルター系
+  // state（filterUser等）と同様、画面遷移時にリセットされる一時的な表示設定として扱い、
+  // localStorageには保存せず都度初期値から始める
+  const [projectStatusFilter, setProjectStatusFilter] = useState<'all' | ProjectStatus>('all');
+  const [projectSearchQuery, setProjectSearchQuery] = useState<string>('');
+
   // 配色テーマ（12種類）。これは複数人で共有する必要のない「個人の見た目の好み」なので、
   // 引き続きこのブラウザのlocalStorageにのみ保存する（Supabase化はしていない）。
   // デフォルトはGRAPHITE（2026-08-25変更。src/index.cssの`:root`側もGRAPHITEに合わせてある）
@@ -282,6 +302,39 @@ export default function App() {
     setProjects(((data ?? []) as SupabaseProjectRow[]).map(mapRowToProject));
   };
 
+  // 【ステップ4：プロジェクト管理タブ】カード表示用の「メンバー数」「タスク進捗」を取得する。
+  // project_members・tasksともにRLS（is_project_member）が自分の参加プロジェクト分だけを
+  // 返すため、project_idでの絞り込みは不要（refreshProjects/refreshTasksと同じ考え方）。
+  // タブを開いたときだけ呼び出す重めの集計クエリなので、ログイン直後の全画面ロードには含めない
+  const refreshProjectSummaries = async () => {
+    const [membersResult, taskStatsResult] = await Promise.all([
+      supabase.from('project_members').select('project_id, user_id, role'),
+      supabase.from('tasks').select('project_id, status'),
+    ]);
+
+    if (membersResult.error) {
+      console.error('プロジェクトメンバーの取得に失敗しました:', membersResult.error);
+    } else {
+      const membersByProject: Record<string, { userId: string; role: string }[]> = {};
+      for (const row of membersResult.data ?? []) {
+        (membersByProject[row.project_id] ??= []).push({ userId: row.user_id, role: row.role });
+      }
+      setProjectMembers(membersByProject);
+    }
+
+    if (taskStatsResult.error) {
+      console.error('タスク集計の取得に失敗しました:', taskStatsResult.error);
+    } else {
+      const countsByProject: Record<string, { total: number; done: number }> = {};
+      for (const row of taskStatsResult.data ?? []) {
+        const entry = (countsByProject[row.project_id] ??= { total: 0, done: 0 });
+        entry.total += 1;
+        if (row.status === 'done') entry.done += 1;
+      }
+      setProjectTaskCounts(countsByProject);
+    }
+  };
+
   // ログイン状態が変わったら、担当者一覧・参加プロジェクト一覧を取得し直す
   // （タスク一覧は下のuseEffectで、currentProjectIdの変化も合わせて取得し直す）
   useEffect(() => {
@@ -320,6 +373,14 @@ export default function App() {
     }
     refreshTasks();
   }, [isAuthenticated, currentProjectId]);
+
+  // 【ステップ4：プロジェクト管理タブ】タブを開いたとき（currentView==='project'）だけ
+  // メンバー数・タスク進捗の集計を取得し直す（サイドバーのアコーディオンでの切り替えのみを
+  // 行っている間はこのクエリを発生させない）
+  useEffect(() => {
+    if (!isAuthenticated || currentView !== 'project') return;
+    refreshProjectSummaries();
+  }, [isAuthenticated, currentView]);
 
   // 参加プロジェクト一覧を取得し直した結果、選択中プロジェクトがその一覧に
   // 含まれなくなっていた場合（メンバーから外れた・削除された等）は選択状態を解除する
@@ -591,6 +652,84 @@ export default function App() {
   // サイドバーの「プロジェクト管理」アコーディオンの開閉切り替え
   const handleToggleProjectMenu = () => setIsProjectMenuOpen((prev) => !prev);
 
+  // 【ステップ4：プロジェクト管理タブ】新規作成モーダルを開く（編集対象なし）
+  const handleOpenCreateProject = () => {
+    setEditingProject(undefined);
+    setIsProjectFormOpen(true);
+  };
+
+  // 既存プロジェクトの編集モーダルを開く（ProjectManagementView側でオーナーのみに表示済み）
+  const handleOpenEditProject = (project: Project) => {
+    setEditingProject(project);
+    setIsProjectFormOpen(true);
+  };
+
+  const handleCloseProjectForm = () => {
+    setIsProjectFormOpen(false);
+    setEditingProject(undefined);
+  };
+
+  // プロジェクトの新規作成・編集の保存。作成時はhandle_new_project()トリガー
+  // （supabase-migration-projects.sql）がcreated_byを自動的にオーナーとしてproject_membersへ
+  // 登録するため、ここではprojectsテーブルへのinsertのみを行えばよい。
+  // 新規作成した場合は、確認済みの仕様どおり作成したプロジェクトをそのまま選択中にする
+  //
+  // 【はまった不具合と修正】`.insert(...).select('id').single()`のRETURNINGは、SELECT用のRLS
+  // ポリシー（projects_select_member）の可視性チェックも受けるが、上記トリガーがproject_members
+  // へオーナー登録を終える前にこのチェックが走ってしまい、「作成した本人なのに作成直後は
+  // 自分のプロジェクトが見えない」という理由でRETURNINGが失敗していた（RLSの一種の
+  // 鶏と卵問題）。projects_select_memberに「auth.uid() = created_by」も許可条件として
+  // 追加することで解消済み（supabase-migration-projects-select-fix.sql参照）
+  const handleSaveProject = async (data: { name: string; description?: string; status: ProjectStatus }) => {
+    if (editingProject) {
+      const { error } = await supabase
+        .from('projects')
+        .update({ name: data.name, description: data.description ?? null, status: data.status })
+        .eq('id', editingProject.id);
+      if (error) {
+        alert('プロジェクトの更新に失敗しました: ' + error.message);
+        return;
+      }
+    } else {
+      const { data: inserted, error } = await supabase
+        .from('projects')
+        .insert({ name: data.name, description: data.description ?? null, status: data.status, created_by: currentUserId })
+        .select('id')
+        .single();
+      if (error || !inserted) {
+        alert('プロジェクトの作成に失敗しました: ' + (error?.message ?? '不明なエラー'));
+        return;
+      }
+      setCurrentProjectId(inserted.id);
+    }
+
+    await refreshProjects();
+    await refreshProjectSummaries();
+    handleCloseProjectForm();
+  };
+
+  // プロジェクトの削除（オーナーのみ。RLSの`projects_delete_owner`で保証。ProjectManagementView側でも
+  // オーナーのみに削除ボタンを表示済み。supabase.mdのルール：DB側の権限とUI側の表示を一致させる）。
+  // `tasks.project_id`は`on delete cascade`のため、配下のタスクもまとめて削除される。
+  // 元に戻せない操作のため、実行前に必ず確認ダイアログを挟む（code-style.mdのルール）
+  const handleDeleteProject = async (project: Project) => {
+    const confirmed = window.confirm(
+      `「${project.name}」を削除しますか？\nこのプロジェクト内のタスクもすべて削除されます。この操作は元に戻せません。`
+    );
+    if (!confirmed) return;
+
+    const { error } = await supabase.from('projects').delete().eq('id', project.id);
+    if (error) {
+      alert('プロジェクトの削除に失敗しました: ' + error.message);
+      return;
+    }
+
+    // 削除したプロジェクトが選択中だった場合の後始末は、既存のuseEffect
+    // （projectsから選択中プロジェクトが消えたらcurrentProjectIdをnullにする）に任せる
+    await refreshProjects();
+    await refreshProjectSummaries();
+  };
+
   // 通知ベルの種類ごとのON/OFFを切り替える（設定ページから呼ばれる）
   const handleToggleNotification = (type: NotificationType) => {
     setNotificationSettings(prev => ({ ...prev, [type]: !prev[type] }));
@@ -791,6 +930,7 @@ export default function App() {
           onSelectProject={handleSelectProject}
           isProjectMenuOpen={isProjectMenuOpen}
           onToggleProjectMenu={handleToggleProjectMenu}
+          onCreateProject={handleOpenCreateProject}
         />
       </div>
 
@@ -917,9 +1057,9 @@ export default function App() {
           />
         )}
 
-        {/* グローバル操作フィルターバー：設定ページ（currentView==='settings'）にはタスクの
+        {/* グローバル操作フィルターバー：設定ページ・プロジェクト管理タブにはタスクの
             絞り込みという概念が無いため、そのタブを開いている間は非表示にする */}
-        {currentView !== 'settings' && (
+        {currentView !== 'settings' && currentView !== 'project' && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 md:px-8 py-2.5 bg-card/10 border-b border-border-card flex-shrink-0 select-none">
             {/* 担当者・カテゴリ・優先度の3つの選択を flex-wrap にし、幅の狭いスマホ画面でも
                 横はみ出し（横スクロール）せず自然に折り返すようにする。
@@ -1044,6 +1184,21 @@ export default function App() {
                   onDeleteAccount={handleDeleteAccount}
                 />
               </div>
+            ) : currentView === 'project' ? (
+              <ProjectManagementView
+                projects={projects}
+                currentUserId={currentUserId}
+                projectMembers={projectMembers}
+                projectTaskCounts={projectTaskCounts}
+                statusFilter={projectStatusFilter}
+                onStatusFilterChange={setProjectStatusFilter}
+                searchQuery={projectSearchQuery}
+                onSearchChange={setProjectSearchQuery}
+                onOpenProject={handleSelectProject}
+                onCreateProject={handleOpenCreateProject}
+                onEditProject={handleOpenEditProject}
+                onDeleteProject={handleDeleteProject}
+              />
             ) : (
               <div className="bg-card p-12 rounded-2xl border border-border-card text-center animate-fade-in">
                 <h2 className="text-md font-bold uppercase tracking-wider mb-2 text-accent">近日公開</h2>
@@ -1066,6 +1221,12 @@ export default function App() {
         isOpen={rejectTargetId !== null}
         onClose={handleCloseRejectModal}
         onSubmit={handleConfirmReject}
+      />
+      <ProjectFormModal
+        isOpen={isProjectFormOpen}
+        editingProject={editingProject}
+        onClose={handleCloseProjectForm}
+        onSubmit={handleSaveProject}
       />
     </div>
   );

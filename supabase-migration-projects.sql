@@ -14,7 +14,16 @@
 --   Postgres/Supabaseでよく知られた「再帰的RLSポリシー」の罠にはまった。
 --   対策として is_project_member() / is_project_owner() を
 --   SECURITY DEFINER関数にし、関数内部でRLSをバイパスして再帰を断ち切っている。
---   （このファイルは、その修正を最初から織り込んだ最終版）
+--
+-- 【重要：INSERT直後のRETURNINGが失敗する不具合と対策】
+--   プロジェクト新規作成時、`insert ... returning`のRETURNINGはSELECTポリシー
+--   （projects_select_member）の可視性チェックも受けるが、「作成者を自動的に
+--   オーナーとしてproject_membersへ登録する」AFTER INSERTトリガーが完了する前に
+--   このチェックが走ってしまい、「作成した本人なのに作成直後は自分のプロジェクトが
+--   見えない」というRLSの鶏と卵問題でRETURNINGが失敗していた。
+--   projects_select_memberに「auth.uid() = created_by」を許可条件として追加することで
+--   解消済み（このファイルはこの修正も最初から織り込んだ最終版。詳細は
+--   supabase-migration-projects-select-fix.sql参照）
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
@@ -185,10 +194,12 @@ $$;
 -- 7. projects / project_members のRLSポリシー（§7.1）
 -- -----------------------------------------------------------------------------
 
+-- 「auth.uid() = created_by」は、作成直後（AFTER INSERTトリガーがproject_membersへ
+-- オーナー登録を終える前）でも、作成者本人がRETURNINGで自分の行を受け取れるようにするため
 drop policy if exists "projects_select_member" on projects;
 create policy "projects_select_member" on projects
   for select to authenticated
-  using (public.is_project_member(id));
+  using (public.is_project_member(id) OR auth.uid() = created_by);
 
 drop policy if exists "projects_insert_authenticated" on projects;
 create policy "projects_insert_authenticated" on projects

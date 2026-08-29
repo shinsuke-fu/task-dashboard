@@ -18,10 +18,11 @@
  *      同じ見た目でハイライト表示する
  *   5. 「プロジェクト管理」項目だけは他と挙動が異なる（プロジェクト管理機能_要件定義書.md
  *      §2.1）。他の項目のように別画面へ即座に遷移するのではなく、クリックで
- *      その場でアコーディオン開閉し、参加中プロジェクトの一覧・選択、「＋新規プロジェクト」
- *      「すべて管理→」への導線を表示する。ただしサイドバーが折りたたみ状態（アイコンのみ）
- *      のときは展開表示するスペースが無いため、クリックで直接プロジェクト管理ページ
- *      （currentView='project'）へ遷移する簡易挙動にする
+ *      その場でアコーディオン開閉し、「＋新規プロジェクト」（一番上に固定）→参加中
+ *      プロジェクトの一覧・選択（件数が増えてもmax-h+overflow-y-autoでスクロールに
+ *      収まる。ユーザー要望：2026-08-29）→「すべて管理→」の順で表示する。ただし
+ *      サイドバーが折りたたみ状態（アイコンのみ）のときは展開表示するスペースが無いため、
+ *      クリックで直接プロジェクト管理ページ（currentView='project'）へ遷移する簡易挙動にする
  * -----------------------------------------------------------------------
  */
 import { APP_VERSION } from '../constants/app';
@@ -40,6 +41,8 @@ interface SidebarProps {
   onSelectProject: (id: string) => void;
   isProjectMenuOpen: boolean;
   onToggleProjectMenu: () => void;
+  // 追加（ステップ4）：アコーディオン内の「＋新規プロジェクト」から作成モーダルを直接開く
+  onCreateProject: () => void;
 }
 
 export default function Sidebar({
@@ -54,6 +57,7 @@ export default function Sidebar({
   onSelectProject,
   isProjectMenuOpen,
   onToggleProjectMenu,
+  onCreateProject,
 }: SidebarProps) {
   // ナビゲーション項目の定義（id は App.tsx の currentView と対応）
   const menuItems = [
@@ -167,33 +171,41 @@ export default function Sidebar({
                   </button>
 
                   {/* 展開時：参加中プロジェクトの一覧（アーカイブ済みはデフォルト非表示。§2.2）＋
-                      新規作成・一括管理ページへの導線。一覧・作成本体はステップ4で実装するため、
-                      現時点では「＋新規プロジェクト」「すべて管理→」はどちらも
-                      プロジェクト管理ページ（近日公開のプレースホルダー）へ遷移するのみ */}
+                      新規作成・一括管理ページへの導線。「＋新規プロジェクト」は作成モーダルを
+                      直接開き（onCreateProject）、「すべて管理→」は一覧性・管理操作用の
+                      プロジェクト管理ページ（currentView='project'）へ遷移する（§2.3） */}
                   {isExpanded && (
                     <div className="mt-1 ml-9 pl-3 border-l border-border-card space-y-0.5 animate-fade-in">
-                      {visibleProjects.length === 0 ? (
-                        <p className="px-2 py-1.5 text-[10px] text-text-sub font-medium">参加中のプロジェクトはありません</p>
-                      ) : (
-                        visibleProjects.map((project) => (
-                          <button
-                            key={project.id}
-                            onClick={() => onSelectProject(project.id)}
-                            className={`w-full px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center gap-2 transition-colors cursor-pointer text-left ${
-                              project.id === currentProjectId ? 'text-accent' : 'text-text-sub hover:text-text-main hover:bg-surface'
-                            }`}
-                          >
-                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${project.id === currentProjectId ? 'bg-accent' : 'bg-transparent'}`} />
-                            <span className="truncate">{project.name}</span>
-                          </button>
-                        ))
-                      )}
+                      {/* 「＋新規プロジェクト」は一覧の前（一番上）に固定表示し、プロジェクト数が
+                          増えても迷わずすぐ押せるようにする（ユーザー要望：2026-08-29） */}
                       <button
-                        onClick={() => onViewChange('project')}
+                        onClick={onCreateProject}
                         className="w-full px-2 py-1.5 rounded-lg text-[11px] font-semibold text-text-sub hover:text-text-main hover:bg-surface transition-colors cursor-pointer text-left"
                       >
                         ＋ 新規プロジェクト
                       </button>
+
+                      {/* プロジェクト一覧はmax-hで高さを頭打ちにし、それを超える分はスクロールさせる
+                          （件数が増えてもアコーディオン自体が際限なく伸びないように。同上要望） */}
+                      <div className="max-h-40 overflow-y-auto space-y-0.5 pr-1">
+                        {visibleProjects.length === 0 ? (
+                          <p className="px-2 py-1.5 text-[10px] text-text-sub font-medium">参加中のプロジェクトはありません</p>
+                        ) : (
+                          visibleProjects.map((project) => (
+                            <button
+                              key={project.id}
+                              onClick={() => onSelectProject(project.id)}
+                              className={`w-full px-2 py-1.5 rounded-lg text-[11px] font-semibold flex items-center gap-2 transition-colors cursor-pointer text-left ${
+                                project.id === currentProjectId ? 'text-accent' : 'text-text-sub hover:text-text-main hover:bg-surface'
+                              }`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${project.id === currentProjectId ? 'bg-accent' : 'bg-transparent'}`} />
+                              <span className="truncate">{project.name}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+
                       <button
                         onClick={() => onViewChange('project')}
                         className="w-full px-2 py-1.5 rounded-lg text-[11px] font-semibold text-text-sub hover:text-text-main hover:bg-surface transition-colors cursor-pointer text-left"
