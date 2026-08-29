@@ -4,7 +4,9 @@
 設計書です。
 
 **ステータス：実装完了（コア機能）・動作確認中**（8章の実装ステップ1〜4が完了し、
-デバイス上での動作確認も一部進んでいます。詳細は10章「実装後の補足」を参照してください）
+デバイス上での動作確認も一部進んでいます。詳細は10章「実装後の補足」を参照してください）。
+**2026-08-29追加：プロジェクト管理機能を実装（11章参照）。0章で「対象外」としていた
+スコープを解禁した**
 
 作成日：2026-08-20
 確定日：2026-08-20（4点の要確認事項に回答をもらい、内容を確定）
@@ -21,6 +23,11 @@
 - 2026-08-25：プロフィール機能（表示名編集・アバター画像アップロード）用の`profiles.avatar_url`
   列と`avatars`ストレージバケットを追加（4.1・4.6）。退会（アカウント削除）機能用の
   `delete_own_account`関数を追加（4.7）
+- 2026-08-29：**「プロジェクト管理」機能を実装**（11章に新設。0章で「対象外」としていた
+  スコープを解禁）。`projects` / `project_members`テーブルを新設し、`tasks`に`project_id`
+  （NOT NULL）を追加。実装時に発生した2件のRLS不具合（再帰的RLS参照・INSERT直後のRETURNING
+  と鶏と卵になる可視性チェック）と、その対処を11章にまとめて記録した。`delete_own_account`
+  関数も、退会時に自分1人だけのオーナープロジェクトを削除するステップを追加する形で拡張した
 
 ---
 
@@ -28,16 +35,14 @@
 
 - 対象：④ 認証機能＋データベース移行（ログイン・ユーザー登録・タスクの実データ永続化・
   ユーザー間の実共有）
-- 対象外：③（サイドバーの新規タブ機能のうち「プロジェクト管理」）は今回スコープ外です。
-  まず④で「複数人が実際にログインして同じタスクを共有できる」状態を作り切ってから、
-  ③の残りの機能を都度設計・追加していく方針とします。
+- 【2026-08-29追記】当初「対象外」としていた③（サイドバーの新規タブ機能のうち
+  「プロジェクト管理」）は、その後実装しました。設計・スキーマは11章にまとめています。
   なお「スケジュール」タブは2026-08-22時点で③のうち実装済みとなっており、既存の
   `tasks.end_date`列を読むだけの画面のため、この設計書のスキーマに影響はありません（4.5参照）。
-- そのため、これから設計するデータベースのスキーマ（テーブル構成）は、**現状の`仕様書.md`に
-  書かれている機能（タスク管理・カンバン・ダッシュボード・通知ベル・スケジュール画面・
-  サブタスク〈チェックリスト〉）がそのまま動くこと**を目標にした、必要最小限の構成にしています。
-  プロジェクト管理機能などが後で追加されると、テーブルが増える可能性があります
-  （そのときに改めて設計します）。
+- そのため、2〜10章で設計しているデータベースのスキーマ（テーブル構成）は、**当時の
+  `仕様書.md`に書かれていた機能（タスク管理・カンバン・ダッシュボード・通知ベル・
+  スケジュール画面・サブタスク〈チェックリスト〉）がそのまま動くこと**を目標にした、
+  必要最小限の構成でした。プロジェクト管理機能に伴うテーブル追加・変更は11章にまとめています。
 
 ---
 
@@ -435,3 +440,227 @@ grant execute on function public.delete_own_account() to authenticated;
 - `supabase-migration-profile.sql`と`supabase-migration-account-deletion.sql`（4.6・4.7）は、
   Supabase側のSQL Editorで実行済みかどうかを別途確認する必要がある。未実行の場合、アバター
   アップロードと退会機能はそれぞれ失敗する。
+
+---
+
+## 11. プロジェクト管理機能（2026-08-29）
+
+0章で当初「対象外」としていた「プロジェクト管理」機能を実装した際の設計・スキーマをまとめます。
+要件は`プロジェクト管理機能_要件定義書.md`（1〜9章）を参照してください。この章はDB設計・
+実装に関する記録に絞ります。
+
+### 11.1 `projects`（プロジェクト本体）
+
+```sql
+create table projects (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  description text,
+  status text not null default 'active' check (status in ('active', 'completed', 'archived')),
+  created_by uuid references profiles(id) not null,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+```
+
+`status`は進行中／完了／アーカイブの3値です（要件定義書で当初2値案としていたものを、
+実装前に3値案へ訂正）。オーナー自体はこのテーブルには持たせず、11.2の`project_members`側の
+`role`列で管理します。
+
+### 11.2 `project_members`（プロジェクトとメンバーの中間テーブル）
+
+```sql
+create table project_members (
+  project_id uuid references projects(id) on delete cascade,
+  user_id uuid references profiles(id) on delete cascade,
+  role text not null default 'member' check (role in ('owner', 'member')),
+  created_at timestamptz default now(),
+  primary key (project_id, user_id)
+);
+```
+
+`task_assignees`（4.3）と同じ、多対多を表す中間テーブルの設計パターンです。`role`は
+`owner` / `member`の2値のみで、組織全体の管理者ロールのような上位ロールは今回導入しません
+（要件定義書§7.3。将来必要になれば`profiles.app_role`のような列を後乗せする拡張性は
+確保してあります）。
+
+プロジェクト作成時、作成者を自動的にオーナーとして本テーブルへ登録するトリガー
+（`handle_new_project`。`handle_new_user`と同じ「INSERT→トリガーで関連行を自動作成」の
+パターン）を用意しています。
+
+### 11.3 `tasks.project_id`（既存テーブルへの列追加）
+
+```sql
+alter table tasks add column project_id uuid references projects(id) on delete cascade;
+-- 既存タスクを既定プロジェクト（「（移行前タスク）」）へ一括移行してから、
+-- not null制約を付ける（3.4参照・要件定義書§3.4）
+alter table tasks alter column project_id set not null;
+```
+
+`on delete cascade`にしているため、プロジェクトを削除すると配下のタスクもまとめて削除されます
+（退会時に自分1人だけのオーナープロジェクトを削除する処理〈11.6〉が、この挙動を利用しています）。
+
+移行時、現在の全ユーザーをメンバーとする既定プロジェクト「（移行前タスク）」を1つ自動作成し、
+既存の全タスクの`project_id`をそのIDで一括更新してから、`not null`制約を付けています
+（要件定義書§3.4）。既定プロジェクトの`created_by`（＝初期オーナー）は、要件定義書に定めが
+無かったため、一番古く登録したユーザーとする実装判断をしました（あくまで暫定値で、移行後に
+プロジェクト名変更・タスクの再配分は自由に行える前提）。
+
+### 11.4 `transfer_project_ownership`関数（オーナー譲渡）
+
+```sql
+create or replace function public.transfer_project_ownership(p_project_id uuid, p_new_owner_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1 from project_members
+    where project_id = p_project_id and user_id = auth.uid() and role = 'owner'
+  ) then
+    raise exception 'オーナーのみがこの操作を行えます';
+  end if;
+
+  if not exists (
+    select 1 from project_members
+    where project_id = p_project_id and user_id = p_new_owner_id
+  ) then
+    raise exception '譲渡先は既にメンバーである必要があります';
+  end if;
+
+  update project_members set role = 'member' where project_id = p_project_id and user_id = auth.uid();
+  update project_members set role = 'owner' where project_id = p_project_id and user_id = p_new_owner_id;
+end;
+$$;
+
+grant execute on function public.transfer_project_ownership(uuid, uuid) to authenticated;
+```
+
+`delete_own_account`（4.7）と同じ`security definer`パターンです。呼び出し本人が現オーナーで
+あること・譲渡先が既にメンバーであることをこの関数内で検証してから、ロールを入れ替えます。
+`MemberManagementModal.tsx`のオーナー譲渡ボタンから呼ばれるほか、退会前のオーナー引き継ぎ
+（`OwnershipHandoverSection.tsx`。11.6参照）からも同じ関数を再利用しています。
+
+### 11.5 RLSポリシー設計
+
+`projects` / `project_members`は、5章で確立した「ログインしていれば全員が見られる」方式とは
+異なり、**「自分が参加しているプロジェクトだけが見える・操作できる」**という、このアプリで
+初めての行レベルの隔離を導入しました。
+
+- `projects`
+  - SELECT：自分がメンバー（`is_project_member`）、または自分が作成者（`created_by`）
+  - UPDATE / DELETE：自分がオーナー（`is_project_owner`）のときのみ
+- `project_members`
+  - SELECT：自分がメンバーであるプロジェクトの行のみ
+  - INSERT：自分がオーナーであるプロジェクトへのみ（メンバー追加はオーナー限定）
+  - DELETE：自分がオーナー（他メンバーの削除）、または自分自身の行（脱退）。ただし
+    `role = 'owner'`の行は本人でも直接削除できない（オーナー交代は11.4の関数経由のみ）
+- `tasks` / `task_assignees` / `task_subtasks`
+  - 5章の「ログインしていれば全員」方式から、「そのタスクが所属するプロジェクトのメンバーのみ」
+    方式に変更（`is_project_member(project_id)`ベース）
+
+判定に使う`is_project_member(p_project_id)` / `is_project_owner(p_project_id)`は、
+`security definer`のヘルパー関数として切り出しています（11.5.1で理由を説明）。
+
+#### 11.5.1 発生した不具合と対処（実装時に判明）
+
+**① 再帰的RLSポリシー（recursive RLS policy）**
+
+初版のRLSポリシーでは、`projects` / `project_members` / `tasks`のポリシー内で
+`project_members`テーブルを素朴な`EXISTS`句で自己参照していました。
+
+```sql
+-- 問題のあった書き方（イメージ）
+using (exists (select 1 from project_members where project_id = projects.id and user_id = auth.uid()))
+```
+
+`project_members`自身のSELECTポリシーを評価する際に、そのポリシー条件がまた`project_members`を
+参照する、という循環が発生し、Postgresの「recursive RLS policy」エラー、あるいは意図しない
+全件非表示（既存タスクが画面から見えなくなる）という形で症状が出ました。
+
+**対処**：判定ロジックを`security definer`のヘルパー関数に切り出しました。
+
+```sql
+create or replace function public.is_project_member(p_project_id uuid)
+returns boolean language sql security definer set search_path = public stable
+as $$ select exists (select 1 from project_members where project_id = p_project_id and user_id = auth.uid()); $$;
+
+create or replace function public.is_project_owner(p_project_id uuid)
+returns boolean language sql security definer set search_path = public stable
+as $$ select exists (select 1 from project_members where project_id = p_project_id and user_id = auth.uid() and role = 'owner'); $$;
+```
+
+`security definer`関数の内部クエリはRLSの対象外（関数定義者の権限で実行される）のため、
+自己参照によるループが起きません。**同じテーブルを素朴な`EXISTS`で自己参照するRLSポリシーを
+書く場合は、必ずこのパターンでヘルパー関数を経由させること**（今後、同じ構造のポリシーを
+追加する際の教訓として記録）。
+
+**② RLSの「鶏と卵」問題（INSERT直後のRETURNINGが自分の作成物を見られない）**
+
+プロジェクト新規作成が「新しい行が行レベルセキュリティポリシーに違反しています」
+（RLS違反、`42501`）で失敗する不具合が発生しました。原因はINSERT自体ではなく、
+`.insert().select().single()`のRETURNINGが、作成直後に走る`handle_new_project`トリガー
+（作成者をオーナーとして`project_members`へ登録する処理）の完了を待たずに、SELECT用RLS
+ポリシー（`projects_select_member`）の可視性チェックを受けてしまい、「作成した本人なのに、
+まだメンバー登録が完了していないので見えない」と判定される、という一種の「鶏と卵」問題でした。
+
+**対処**：`projects_select_member`に「`auth.uid() = created_by`」も許可条件として追加しました。
+
+```sql
+create policy "projects_select_member" on projects
+  for select to authenticated
+  using (public.is_project_member(id) OR auth.uid() = created_by);
+```
+
+**同じ組み合わせ（INSERT直後にAFTER INSERTトリガーが別テーブルへ権限系の行を追加し、かつ
+RETURNINGでその場で結果を返す）のRLSポリシーを書くときは、この鶏と卵問題を疑うこと**
+（メンバー追加後に何か即座に返す処理を書く場合も同様の注意が必要）。
+
+### 11.6 `delete_own_account`関数の拡張（退会×オーナー引き継ぎ）
+
+要件定義書§6.2に基づき、退会時に自分がオーナーで他に誰もメンバーがいない（＝自分1人だけの）
+プロジェクトを、タスクごとまとめて削除するステップを、4.7の`delete_own_account`関数に追加
+しました（`supabase-migration-account-deletion-owner-handover.sql`）。
+
+```sql
+-- delete_own_account()内、既存の3ステップの前に追加
+delete from public.projects
+where id in (
+  select pm.project_id from public.project_members pm
+  where pm.user_id = auth.uid() and pm.role = 'owner'
+  and not exists (
+    select 1 from public.project_members pm2
+    where pm2.project_id = pm.project_id and pm2.user_id <> auth.uid()
+  )
+);
+```
+
+他にメンバーがいるオーナープロジェクトは、退会前にフロント側（`OwnershipHandoverSection.tsx`）で
+新オーナーへの譲渡を済ませてから退会する運用のため、この関数の削除対象には含めません。ただし
+念のため「他のメンバーがいないこと」をSQL側でも確認してから削除しており、フロント側の譲渡漏れが
+あっても他人のプロジェクトを巻き込んで削除してしまわない、二重の安全策にしています。
+`tasks.project_id`が`on delete cascade`（11.3）のため、プロジェクトを削除すれば配下のタスクも
+まとめて削除されます。
+
+### 11.7 実際に追加・変更したファイル
+
+| ファイル | 役割 |
+|---|---|
+| `supabase-migration-projects.sql` | `projects` / `project_members`テーブル、`handle_new_project`トリガー、`transfer_project_ownership`関数、`tasks.project_id`列追加＋既存タスクの移行、RLSポリシー一式（11.5の修正を織り込み済み）を1ファイルに統合 |
+| `supabase-migration-projects-rls-fix.sql` | 11.5.1①（再帰的RLS）の修正の履歴用ファイル（内容は上記に統合済み） |
+| `supabase-migration-projects-select-fix.sql` | 11.5.1②（鶏と卵問題）の修正の履歴用ファイル（内容は上記に統合済み） |
+| `supabase-migration-account-deletion-owner-handover.sql` | 11.6の`delete_own_account`関数拡張 |
+
+### 11.8 実装後の補足
+
+- 上記11.5.1の2件の不具合は、いずれもSupabase側では発見時点で都度修正・動作確認済みです。
+  `supabase-migration-projects.sql`本体も、将来別環境にゼロから流し直す場合に同じ不具合が
+  起きないよう、最初から修正済みの内容（ヘルパー関数経由）にしてあります。
+- `supabase-migration-account-deletion-owner-handover.sql`は、ユーザーがSupabase側のSQL
+  Editorで実行済みです。ただし、実際に退会を最後まで実行して自分1人だけのプロジェクトが
+  削除されることの確認（エンドツーエンドのテスト）は、「テストが大変なので後で」という
+  理由で保留中です（`仕様書.md`8章参照）。
+- ロール管理は「プロジェクト単位のオーナー／メンバー」のみを実装し、組織全体の管理者ロールは
+  設計のみ（要件定義書§7.3）に留めています（YAGNI判断）。
