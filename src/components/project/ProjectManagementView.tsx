@@ -25,6 +25,12 @@
  *      RLSと一致させる）。オーナー以外のメンバーには、代わりに「抜ける」ボタンを表示する
  *      （§2.4・§7.4。オーナー本人は他の誰かへ譲渡するまで抜けられない）。メンバー管理の
  *      実体（一覧・追加・削除・オーナー譲渡）はMemberManagementModal.tsxが担う
+ *   6. カードの列数は、ビューポート幅ベースのsm:/lg:ではなくコンテナクエリ（@min-[Npx]:。
+ *      App.tsxの<main>に付けた@containerが基準）で切り替える。タブレットでサイドバーを
+ *      開いた状態など、ビューポート幅の割に実際の表示領域が狭いケースでボタン行
+ *      （削除／メンバー管理／編集／開く）が崩れる不具合があったため（2026-08-29修正。
+ *      KanbanBoard.tsxのカラム幅と同じ考え方）。ボタン行自体もflex-wrapにし、
+ *      それでも狭い場合はボタンが潰れる代わりに2行へ折り返すようにしてある
  * -----------------------------------------------------------------------
  */
 import type { Project } from '../../types/task';
@@ -159,7 +165,14 @@ export default function ProjectManagementView({
           <p className="text-xs text-text-sub">検索条件やタブを変更してみてください。</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        // 【レイアウト崩れ修正・2026-08-29】列数の切り替えを、ビューポート幅ベースの
+        // sm:/lg:ではなく、コンテナクエリ（App.tsxの<main>に付けた@container基準）にした。
+        // ビューポート幅だけで判定すると、タブレットでサイドバーを開いた状態のときに
+        // 「ビューポート的には2〜3列に見えるはずの幅だが、実際にこのビューへ残っている
+        // 横幅はもっと狭い」というズレが起き、カード内のボタン行（削除／メンバー管理／
+        // 編集／開く）の文字がはみ出す崩れの原因になっていた（KanbanBoard.tsxの
+        // カラム幅と同じ不具合パターン。同じ@min-[Npx]:方式で解消）
+        <div className="grid grid-cols-1 @min-[640px]:grid-cols-2 @min-[1024px]:grid-cols-3 gap-4">
           {visibleProjects.map((project) => {
             const members = projectMembers[project.id] ?? [];
             const myRole = members.find((m) => m.userId === currentUserId)?.role;
@@ -200,12 +213,16 @@ export default function ProjectManagementView({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-1 mt-auto">
+                {/* 【レイアウト崩れ修正・2026-08-29】flex-wrapを追加し、カード幅が狭いとき
+                    （タブレットでサイドバーを開いた状態など）はボタンが崩れる代わりに
+                    2行に折り返すようにした。gap-y-2で折り返し時の縦の間隔も確保する。
+                    ボタンの横paddingもpx-3→px-2.5に少し詰め、折り返しが起きにくくした */}
+                <div className="flex flex-wrap items-center justify-end gap-2 gap-y-2 pt-1 mt-auto">
                   {/* 編集・メンバー管理・削除はオーナーのみ（projects_update_owner等のRLSと一致させる） */}
                   {isOwner && (
                     <button
                       onClick={() => onDeleteProject(project)}
-                      className="h-8 px-3 bg-surface hover:bg-rose-50 border border-border-card/50 hover:border-rose-200 rounded-lg text-[10px] font-bold text-text-sub hover:text-rose-600 transition cursor-pointer"
+                      className="h-8 px-2.5 bg-surface hover:bg-rose-50 border border-border-card/50 hover:border-rose-200 rounded-lg text-[10px] font-bold text-text-sub hover:text-rose-600 transition cursor-pointer whitespace-nowrap"
                     >
                       削除
                     </button>
@@ -213,7 +230,7 @@ export default function ProjectManagementView({
                   {isOwner && (
                     <button
                       onClick={() => onManageMembers(project)}
-                      className="h-8 px-3 bg-surface hover:bg-base border border-border-card/50 rounded-lg text-[10px] font-bold text-text-sub hover:text-text-main transition cursor-pointer"
+                      className="h-8 px-2.5 bg-surface hover:bg-base border border-border-card/50 rounded-lg text-[10px] font-bold text-text-sub hover:text-text-main transition cursor-pointer whitespace-nowrap"
                     >
                       メンバー管理
                     </button>
@@ -221,7 +238,7 @@ export default function ProjectManagementView({
                   {isOwner && (
                     <button
                       onClick={() => onEditProject(project)}
-                      className="h-8 px-3 bg-surface hover:bg-base border border-border-card/50 rounded-lg text-[10px] font-bold text-text-sub hover:text-text-main transition cursor-pointer"
+                      className="h-8 px-2.5 bg-surface hover:bg-base border border-border-card/50 rounded-lg text-[10px] font-bold text-text-sub hover:text-text-main transition cursor-pointer whitespace-nowrap"
                     >
                       編集
                     </button>
@@ -230,14 +247,14 @@ export default function ProjectManagementView({
                   {!isOwner && (
                     <button
                       onClick={() => onLeaveProject(project)}
-                      className="h-8 px-3 bg-surface hover:bg-rose-50 border border-border-card/50 hover:border-rose-200 rounded-lg text-[10px] font-bold text-text-sub hover:text-rose-600 transition cursor-pointer"
+                      className="h-8 px-2.5 bg-surface hover:bg-rose-50 border border-border-card/50 hover:border-rose-200 rounded-lg text-[10px] font-bold text-text-sub hover:text-rose-600 transition cursor-pointer whitespace-nowrap"
                     >
                       抜ける
                     </button>
                   )}
                   <button
                     onClick={() => onOpenProject(project.id)}
-                    className="h-8 px-4 bg-accent hover:bg-accent/90 text-on-accent font-black text-[10px] rounded-lg cursor-pointer shadow-md"
+                    className="h-8 px-4 bg-accent hover:bg-accent/90 text-on-accent font-black text-[10px] rounded-lg cursor-pointer shadow-md whitespace-nowrap"
                   >
                     開く
                   </button>

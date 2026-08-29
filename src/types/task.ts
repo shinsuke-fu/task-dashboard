@@ -75,6 +75,17 @@ export type AppTheme =
 // 通知ベルに表示するアラートの種類（App.tsx・SettingsView.tsxの両方で使うため共有型として定義）
 export type NotificationType = 'overdue' | 'dueToday' | 'rejected' | 'reviewRequested';
 
+// 通知ベル・通知専用画面（NotificationsView.tsx）の両方で使う、通知1件分のデータ構造。
+// サーバー側に通知テーブルは無く、都度tasksから導出するその場限りのデータ（既読/未読の概念も無い）。
+// App.tsx・NotificationsView.tsxの両方で使うため共有型として定義（ステップ8で全プロジェクト
+// 横断化した際、通知一覧を専用画面としても表示するようになったため型を共有化した）
+export interface NotificationItem {
+  id: string;
+  type: NotificationType;
+  task: Task;
+  message: string;
+}
+
 // プロジェクトのステータス（「進行中」「完了」「アーカイブ」の3値。デフォルト非表示に
 // なるのはアーカイブのみ。プロジェクト管理機能_要件定義書.md §2.2・§3.1）
 export type ProjectStatus = 'active' | 'completed' | 'archived';
