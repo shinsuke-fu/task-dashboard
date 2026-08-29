@@ -41,6 +41,11 @@
  *      絞り込みにも対応する（§2.2〜2.3）。オーナーはカードから「メンバー管理」を開き、
  *      メンバーの追加・削除・オーナー譲渡ができる（MemberManagementModal。§2.4・§6.1）。
  *      オーナー以外のメンバーは「抜ける」でプロジェクトから脱退できる
+ *   9. 【ステップ6】TaskForm.tsxの編集画面には「プロジェクト」欄があり、自分が参加している
+ *      他のプロジェクトへタスクを移動できる（§2.5）。担当者・確認者の選択候補は、常に
+ *      選択中プロジェクトのメンバーに絞り込まれ、移動先のメンバーでなくなる担当者・確認者は
+ *      自動的に選択から外れる。この絞り込みに使うprojectMembersは、ログイン時点で
+ *      取得しておく（「プロジェクト管理」タブを開いていなくても使えるようにするため）
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect, useRef } from 'react';
@@ -110,6 +115,7 @@ interface SupabaseTaskRow {
   reviewer_id: string | null;
   return_reason: string | null;
   created_by: string;
+  project_id: string;
   task_assignees: { user_id: string }[];
   task_subtasks: { id: string; title: string; done: boolean }[];
 }
@@ -128,6 +134,7 @@ const mapRowToTask = (row: SupabaseTaskRow): Task => ({
   returnReason: row.return_reason ?? undefined,
   subtasks: row.task_subtasks.map((s) => ({ id: s.id, title: s.title, done: s.done })),
   createdBy: row.created_by,
+  projectId: row.project_id,
 });
 
 // Supabaseから取得した1行分のプロジェクト生データの型（projectsテーブル）。
@@ -210,8 +217,10 @@ export default function App() {
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState<boolean>(false);
 
   // 【ステップ4：プロジェクト管理タブ】各プロジェクトのメンバー一覧（user_id・role）と
-  // タスク件数・完了数。カードの「メンバー数」「進捗％」表示に使う。プロジェクト管理タブを
-  // 開いたときだけrefreshProjectSummaries()で取得する（毎回の全画面ロードには含めない）
+  // タスク件数・完了数。カードの「メンバー数」「進捗％」表示に使う。当初はプロジェクト管理
+  // タブを開いたときだけ取得する設計だったが、【ステップ6】でTaskForm.tsxの担当者・確認者
+  // 候補の絞り込みにも使うようになったため、ログイン時点（isAuthenticated）でも
+  // refreshProjectSummaries()を呼ぶよう変更した（下記useEffect参照）
   const [projectMembers, setProjectMembers] = useState<Record<string, { userId: string; role: string }[]>>({});
   const [projectTaskCounts, setProjectTaskCounts] = useState<Record<string, { total: number; done: number }>>({});
 
@@ -366,6 +375,11 @@ export default function App() {
       });
 
     refreshProjects();
+    // 【ステップ6】担当者・確認者の候補をプロジェクトのメンバーに絞り込むため（TaskForm.tsx）、
+    // 「プロジェクト管理」タブを開いていなくてもログイン時点でprojectMembersを取得しておく
+    // （元々は§9-4でプロジェクト管理タブを開いたときだけ取得する設計だったが、ダッシュボード等
+    // からタスク編集を開いた際にも必要になったため、ログイン時にも取得するよう変更）
+    refreshProjectSummaries();
 
     return () => {
       cancelled = true;
@@ -414,13 +428,20 @@ export default function App() {
   // （＝確認者アカウントの通知ベルが更新されない、という形で症状が出る）。
   // 本格的な対応（Realtime導入）は別途行う想定だが、暫定策として一定間隔でタスク一覧を
   // ポーリングし直し、通知やカンバン表示がある程度追従するようにしている
+  //
+  // 【不具合修正・2026-08-29】依存配列が[isAuthenticated]のみだった際、setIntervalのコールバックが
+  // クロージャとしてタイマー作成時点のrefreshTasks（＝その時点のcurrentProjectId）を握ったまま
+  // 更新されず、プロジェクトを切り替えても「ログイン直後に選択されていたプロジェクト」のタスクを
+  // 取得し続けてしまう不具合があった（切り替え直後は正しく表示されるが、最大20秒以内に古い
+  // プロジェクトの内容で上書きされる、という形で発現）。currentProjectIdを依存配列に加え、
+  // プロジェクトが変わるたびにタイマーを作り直す（＝常に最新のrefreshTasksを使う）ことで解消
   useEffect(() => {
     if (!isAuthenticated) return;
     const intervalId = setInterval(() => {
       refreshTasks();
     }, 20000); // 20秒間隔（頻度を上げすぎるとAPI呼び出しが増えるため、通知用途としてはこの程度で妥協）
     return () => clearInterval(intervalId);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, currentProjectId]);
 
   // テーマ変更時：localStorageへ保存＋<html>にdata-theme属性を反映（CSS変数切替）。
   // 併せて、スマホ幅では自動的にサイドバーを閉じる
@@ -507,7 +528,8 @@ export default function App() {
   const handleSaveTask = async (taskData: Omit<Task, 'id' | 'status' | 'createdBy'>) => {
     // 新規作成時はcurrentProjectIdが必須（tasks.project_idはNOT NULL制約のため。
     // プロジェクト管理機能_要件定義書.md §3.3）。編集時（editingTaskがある場合）は
-    // 既存タスクのproject_idを変更しないため対象外（プロジェクト移動欄はステップ6で対応）
+    // TaskForm.tsxの「プロジェクト」欄（§2.5・ステップ6）でtaskData.projectIdが
+    // 他プロジェクトのIDに変わっている可能性があるため、下記taskRowにそのまま含める
     if (!editingTask && !currentProjectId) {
       alert('プロジェクトが選択されていません。サイドバーからプロジェクトを選択してください。');
       return;
@@ -525,6 +547,9 @@ export default function App() {
       // （PostgREST経由では400として現れる）になるため、''もnullとして扱う（??ではなく||を使う理由）
       reviewer_id: taskData.reviewerId || null,
       return_reason: taskData.returnReason ?? null,
+      // 新規作成時は下のinsertで必ずcurrentProjectIdへ上書きされる（TaskForm側の初期値も
+      // currentProjectId基準のため通常は同じ値になるが、insert側を信頼できる値として優先する）
+      project_id: taskData.projectId,
     };
 
     let taskId: string;
@@ -1309,6 +1334,9 @@ export default function App() {
         onAddTask={handleSaveTask}
         users={users}
         currentUserId={currentUserId}
+        projects={projects}
+        projectMembers={projectMembers}
+        currentProjectId={currentProjectId}
       />
       {/* 一番底に新設モーダルをマウント（設定は独立したページになったため、ここにはマウントしない） */}
       <RejectReasonModal
