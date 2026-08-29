@@ -23,7 +23,8 @@
  *      （楽観的更新はせず、まずは確実さを優先）
  *   4. グローバルヘッダー／担当者・カテゴリ・優先度のフィルターバー／サイドバー
  *      など、画面全体のレイアウトを組み立てる（フィルターは画面ごとに分けず、
- *      全画面共通の状態として扱う方針）
+ *      全画面共通の状態として扱う方針）。ヘッダーには選択中プロジェクト名の
+ *      バッジも常時表示する（ユーザー要望：2026-08-29。sm未満の画面幅では省略）
  *   5. tasksから「自分向けの通知」（遅延・当日締切・差し戻し・承認待ち）を
  *      都度算出し、ヘッダーの通知ベルのドロップダウンに表示する
  *   6. 「スケジュール」タブでは月間カレンダー形式のScheduleViewを表示する
@@ -51,11 +52,20 @@
  *      セクション（OwnershipHandoverSection.tsx）を表示し、先にすべて新オーナーへ
  *      譲渡させる（§6.2）。自分1人だけがオーナーのプロジェクトは、退会実行時に
  *      delete_own_account()側でタスクごとまとめて削除される
+ *  11. 【ステップ8】通知ベルは選択中プロジェクトに絞らず、自分が参加している全プロジェクトを
+ *      横断して通知する（§4）。判定専用のnotificationTasks（tasksとは別state）をログイン時・
+ *      20秒ポーリング・各種タスク操作の直後に取得し直す。通知アイテムをクリックした際、
+ *      そのタスクが選択中でない別プロジェクトのものであれば、currentProjectIdを自動的に
+ *      そのプロジェクトへ切り替えてから編集モーダルを開く（handleNotificationClick）。
+ *      【追加要望・2026-08-29】通知が全プロジェクト横断になり見にくいという指摘を受け、
+ *      ヘッダーの通知ベルは直近6件＋プロジェクト名タグのプレビューに徹し、全件は
+ *      「すべて見る→」から通知専用画面（NotificationsView.tsx・currentView='notifications'。
+ *      サイドバーには項目を増やさず、設定ページと同様ベルからのみ入る）で確認する構成にした
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import type { Task, AppTheme, User, NotificationType, Project, ProjectStatus } from './types/task';
+import type { Task, AppTheme, User, NotificationType, NotificationItem, Project, ProjectStatus } from './types/task';
 import { supabase } from './lib/supabaseClient';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/kanban/KanbanBoard';
@@ -70,16 +80,11 @@ import { ImageLightbox } from './components/ImageLightbox';
 import ProjectManagementView from './components/project/ProjectManagementView';
 import ProjectFormModal from './components/project/ProjectFormModal';
 import MemberManagementModal from './components/project/MemberManagementModal';
+import { NotificationsView } from './components/notifications/NotificationsView';
 import { getTodayJstDateString } from './utils/date';
 
-// 通知ベルに表示するアラートアイテム。種類（NotificationType）はtypes/task.tsで定義し、
-// SettingsView.tsxの通知ON-OFF設定とも共有している
-interface NotificationItem {
-  id: string;
-  type: NotificationType;
-  task: Task;
-  message: string;
-}
+// 通知ベルに表示するアラートアイテムの型（NotificationItem）は、通知専用画面
+// （NotificationsView.tsx）とも共有するため、types/task.tsに集約している（ステップ8）
 
 // 通知ベルの4種類すべてを初期状態でON（従来通りの挙動）にしたデフォルト設定
 const defaultNotificationSettings: Record<NotificationType, boolean> = {
@@ -208,6 +213,12 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState<boolean>(false);
 
+  // 【ステップ8：通知ベルの全プロジェクト横断対応】通知ベルの判定専用に、選択中プロジェクトに
+  // 絞らず「自分が参加している全プロジェクト」のタスクを保持する（要件定義書§4）。
+  // tasks（画面表示用。currentProjectIdで絞り込み）とは別に持つ理由は、通知ベルだけは
+  // 選択中プロジェクトに関係なく全プロジェクト横断で気づけるようにするため
+  const [notificationTasks, setNotificationTasks] = useState<Task[]>([]);
+
   // 参加中プロジェクトの一覧（Supabaseの`projects`テーブルから取得。RLSにより自分が
   // メンバーのプロジェクトのみが返る。プロジェクト管理機能_要件定義書.md §3.1）
   const [projects, setProjects] = useState<Project[]>([]);
@@ -310,6 +321,23 @@ export default function App() {
     setTasks(((data ?? []) as SupabaseTaskRow[]).map(mapRowToTask));
   };
 
+  // 【ステップ8：通知ベルの全プロジェクト横断対応】通知ベル用に、project_idで絞り込まず
+  // 全タスクを取得し直す共通関数。RLS（is_project_member経由のtasksポリシー）により、
+  // 自分が参加しているプロジェクトのタスクだけが自動的に返るため、クライアント側での
+  // user_id/project_id絞り込みは不要（refreshProjectsと同じ考え方）
+  const refreshNotificationTasks = async () => {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*, task_assignees(user_id), task_subtasks(id, title, done)')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('通知用タスクの取得に失敗しました:', error);
+      return;
+    }
+    setNotificationTasks(((data ?? []) as SupabaseTaskRow[]).map(mapRowToTask));
+  };
+
   // Supabaseから自分の参加プロジェクト一覧を取得し直す共通関数。RLS
   // （projects_select_member。supabase-migration-projects.sql参照）が自分がメンバーの
   // プロジェクトだけを返すため、クライアント側でのuser_id絞り込みは不要
@@ -365,6 +393,7 @@ export default function App() {
     if (!isAuthenticated) {
       setUsers([]);
       setProjects([]);
+      setNotificationTasks([]);
       return;
     }
 
@@ -387,6 +416,9 @@ export default function App() {
     // （元々は§9-4でプロジェクト管理タブを開いたときだけ取得する設計だったが、ダッシュボード等
     // からタスク編集を開いた際にも必要になったため、ログイン時にも取得するよう変更）
     refreshProjectSummaries();
+    // 【ステップ8】通知ベルは選択中プロジェクトに関係なく全プロジェクト横断で必要なため、
+    // ログイン時点で取得しておく（currentProjectIdが未選択・未確定の間も通知は出したいため）
+    refreshNotificationTasks();
 
     return () => {
       cancelled = true;
@@ -442,10 +474,15 @@ export default function App() {
   // 取得し続けてしまう不具合があった（切り替え直後は正しく表示されるが、最大20秒以内に古い
   // プロジェクトの内容で上書きされる、という形で発現）。currentProjectIdを依存配列に加え、
   // プロジェクトが変わるたびにタイマーを作り直す（＝常に最新のrefreshTasksを使う）ことで解消
+  //
+  // 【ステップ8】通知ベルは全プロジェクト横断（notificationTasks）になったため、こちらも
+  // 同じタイマーで一緒に取得し直す。refreshNotificationTasks自体はcurrentProjectIdに
+  // 依存しないが、同じ間隔で回して問題ないため、既存のタイマーに相乗りさせている
   useEffect(() => {
     if (!isAuthenticated) return;
     const intervalId = setInterval(() => {
       refreshTasks();
+      refreshNotificationTasks();
     }, 20000); // 20秒間隔（頻度を上げすぎるとAPI呼び出しが増えるため、通知用途としてはこの程度で妥協）
     return () => clearInterval(intervalId);
   }, [isAuthenticated, currentProjectId]);
@@ -494,6 +531,10 @@ export default function App() {
   // 自分のプロフィール（ヘッダーのアバター表示用）
   const myProfile = users.find((u) => u.id === currentUserId);
 
+  // 選択中プロジェクトの実体（ヘッダーの常時表示バッジ用。ユーザー要望：2026-08-29。
+  // 「今どのプロジェクトを見ているか常に分かるようにしたい」との理由で追加）
+  const currentProject = projects.find((p) => p.id === currentProjectId);
+
   // 【ステップ7：オーナー引き継ぎ】自分がオーナーで、かつ他にもメンバーがいる
   // プロジェクト一覧（設定＞データ画面で、退会前に新オーナーへの譲渡を求める対象。
   // 要件定義書§6.2）。projectMembersの更新のたびに再計算されるため、譲渡が完了して
@@ -505,13 +546,15 @@ export default function App() {
   });
 
   // 通知ベルに表示する「自分宛て」のアラート一覧。サーバー通知ではなく、
-  // 現在のtasksデータから毎レンダー時に導出するシンプルな仕組み。
+  // notificationTasksデータ（全プロジェクト横断。ステップ8・要件定義書§4）から毎レンダー時に
+  // 導出するシンプルな仕組み。選択中プロジェクトのtasksとは別データのため、選択中でない
+  // 別プロジェクトの承認待ち等にも気づける。
   // ①遅延中 ②当日締切 ③自分のタスクが差し戻された ④自分がレビュアーで承認待ち、の4種類。
   // 各種類は設定ページ（SettingsView.tsx）でON/OFFでき、OFFの種類はここで一切生成しない
   const todayStr = getTodayJstDateString();
   const notifications: NotificationItem[] = [];
 
-  tasks.forEach((task) => {
+  notificationTasks.forEach((task) => {
     const isMine = task.assignees?.includes(currentUserId);
 
     // 遅延中・当日締切は「自分が担当者になっている」未完了タスクに絞って通知する
@@ -606,6 +649,7 @@ export default function App() {
     }
 
     await refreshTasks();
+    await refreshNotificationTasks(); // 【ステップ8】保存したタスクが他プロジェクトの場合もあるため通知も更新
     setIsModalOpen(false);
     setEditingTask(undefined);
   };
@@ -627,6 +671,7 @@ export default function App() {
       return;
     }
     await refreshTasks();
+    await refreshNotificationTasks(); // 【ステップ8】削除したタスクの通知も即座に消す
   };
 
   // カンバンのドラッグ＆ドロップ等によるステータス変更。
@@ -645,6 +690,7 @@ export default function App() {
       return;
     }
     await refreshTasks();
+    await refreshNotificationTasks(); // 【ステップ8】ステータス変更（遅延解消等）を通知へ即座に反映
   };
 
   // 承認申請／承認完了／差し戻しの3アクションをまとめて処理する
@@ -662,12 +708,26 @@ export default function App() {
       return;
     }
     await refreshTasks();
+    await refreshNotificationTasks(); // 【ステップ8】承認申請・承認・差し戻しを通知へ即座に反映
   };
 
   // タスクカードクリック等によるタスク編集モーダルの起動
   const handleStartEdit = (task: Task) => {
     setEditingTask(task);
     setIsModalOpen(true);
+  };
+
+  // 【ステップ8】通知ベルのアイテムをクリックしたときの起動（要件定義書§4）。
+  // 通知は全プロジェクト横断（notificationTasks）のため、クリックしたタスクが選択中でない
+  // 別プロジェクトのものであれば、先にcurrentProjectIdをそのプロジェクトへ自動的に
+  // 切り替えてから編集モーダルを開く（切り替えないと、TaskForm.tsxを閉じた後に戻る
+  // ダッシュボード等が選択中プロジェクトのままで、せっかく開いたタスクの文脈と食い違うため）
+  const handleNotificationClick = (task: Task) => {
+    if (task.projectId !== currentProjectId) {
+      setCurrentProjectId(task.projectId);
+    }
+    handleStartEdit(task);
+    setIsNotifOpen(false);
   };
 
   // 差し戻し理由モーダルの開閉
@@ -1012,6 +1072,7 @@ export default function App() {
 
     await supabase.from('task_assignees').insert({ task_id: inserted.id, user_id: currentUserId });
     await refreshTasks();
+    await refreshNotificationTasks(); // 【ステップ8】リセットで自分のタスクが入れ替わるため通知も更新
   };
 
   // ヘッダーのテーマ切替メニューに表示するラベル一覧（AppTheme各値 → 表示名）
@@ -1103,8 +1164,22 @@ export default function App() {
               </svg>
             </button>
             <span className="text-[10px] md:text-xs font-black tracking-widest uppercase text-accent truncate">
-              {currentView === 'dashboard' ? 'ダッシュボード' : currentView === 'tasks' ? 'タスクボード' : currentView === 'schedule' ? 'スケジュール' : currentView === 'settings' ? '設定' : '拡張機能'}
+              {currentView === 'dashboard' ? 'ダッシュボード' : currentView === 'tasks' ? 'タスクボード' : currentView === 'schedule' ? 'スケジュール' : currentView === 'settings' ? '設定' : currentView === 'notifications' ? '通知' : '拡張機能'}
             </span>
+            {/* 選択中プロジェクト名の常時表示バッジ（ユーザー要望：2026-08-29）。ヘッダーはサイドバーと
+                違いスマホでも常に表示され続けるため、ここに置くのが最も「常時」に近い。
+                幅の余裕が無いスマホ幅では省略し、sm以上でのみ表示する */}
+            {currentProject && (
+              <span
+                className="hidden sm:inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-surface border border-border-card/60 text-[10px] font-bold text-text-sub max-w-[220px]"
+                title={currentProject.name}
+              >
+                <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                </svg>
+                <span className="truncate">{currentProject.name}</span>
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 md:gap-4">
@@ -1135,28 +1210,49 @@ export default function App() {
                 )}
               </button>
 
+              {/* 【ステップ8追加要望：2026-08-29】通知が全プロジェクト横断になり、件数が増えると
+                  このドロップダウンだけでは（幅288px・高さ最大384pxで内部スクロール）狭く、
+                  どのプロジェクトの通知か分かりにくいという指摘を受け、ここは直近6件だけの
+                  「プレビュー」に徹する構成へ変更した。プロジェクト名タグを追加し、全件は
+                  「すべて見る→」から専用画面（NotificationsView.tsx・currentView='notifications'）
+                  へ遷移して確認する2段構えにした */}
               {isNotifOpen && (
-                <div className="absolute right-0 mt-1.5 w-72 max-h-96 overflow-y-auto bg-card border border-border-card rounded-xl shadow-2xl p-1.5 space-y-1 z-50 animate-scale-in">
+                <div className="absolute right-0 mt-1.5 w-72 bg-card border border-border-card rounded-xl shadow-2xl p-1.5 z-50 animate-scale-in">
                   {notifications.length === 0 ? (
                     <div className="px-3 py-6 text-center text-[11px] text-text-sub font-medium">
                       現在、通知はありません
                     </div>
                   ) : (
-                    notifications.map((n) => (
+                    <>
+                      <div className="max-h-80 overflow-y-auto space-y-1">
+                        {notifications.slice(0, 6).map((n) => (
+                          <button
+                            key={n.id}
+                            onClick={() => handleNotificationClick(n.task)}
+                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-surface transition-colors flex items-start gap-2 cursor-pointer"
+                          >
+                            <span className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                              n.type === 'overdue' ? 'bg-rose-500' :
+                              n.type === 'dueToday' ? 'bg-amber-500' :
+                              n.type === 'rejected' ? 'bg-rose-400' :
+                              'bg-accent'
+                            }`} />
+                            <span className="min-w-0">
+                              <span className="block text-[9px] font-bold text-accent/80 uppercase tracking-wider truncate">
+                                {projects.find((p) => p.id === n.task.projectId)?.name ?? '不明なプロジェクト'}
+                              </span>
+                              <span className="block text-[11px] text-text-main font-medium leading-relaxed">{n.message}</span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
                       <button
-                        key={n.id}
-                        onClick={() => { handleStartEdit(n.task); setIsNotifOpen(false); }}
-                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-surface transition-colors flex items-start gap-2 cursor-pointer"
+                        onClick={() => { handleViewChange('notifications'); setIsNotifOpen(false); }}
+                        className="w-full mt-1 px-3 py-2 rounded-lg text-[11px] font-bold text-accent hover:bg-surface transition-colors cursor-pointer text-center"
                       >
-                        <span className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                          n.type === 'overdue' ? 'bg-rose-500' :
-                          n.type === 'dueToday' ? 'bg-amber-500' :
-                          n.type === 'rejected' ? 'bg-rose-400' :
-                          'bg-accent'
-                        }`} />
-                        <span className="text-[11px] text-text-main font-medium leading-relaxed">{n.message}</span>
+                        すべて見る（{notifications.length}件）→
                       </button>
-                    ))
+                    </>
                   )}
                 </div>
               )}
@@ -1206,9 +1302,9 @@ export default function App() {
           />
         )}
 
-        {/* グローバル操作フィルターバー：設定ページ・プロジェクト管理タブにはタスクの
-            絞り込みという概念が無いため、そのタブを開いている間は非表示にする */}
-        {currentView !== 'settings' && currentView !== 'project' && (
+        {/* グローバル操作フィルターバー：設定ページ・プロジェクト管理タブ・通知専用画面には
+            タスクの絞り込みという概念が無いため、そのタブを開いている間は非表示にする */}
+        {currentView !== 'settings' && currentView !== 'project' && currentView !== 'notifications' && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 md:px-8 py-2.5 bg-card/10 border-b border-border-card flex-shrink-0 select-none">
             {/* 担当者・カテゴリ・優先度の3つの選択を flex-wrap にし、幅の狭いスマホ画面でも
                 横はみ出し（横スクロール）せず自然に折り返すようにする。
@@ -1355,6 +1451,14 @@ export default function App() {
                 onManageMembers={handleOpenMemberModal}
                 onLeaveProject={handleLeaveProject}
               />
+            ) : currentView === 'notifications' ? (
+              <div className="animate-fade-in pb-8">
+                <NotificationsView
+                  notifications={notifications}
+                  projects={projects}
+                  onSelectNotification={handleNotificationClick}
+                />
+              </div>
             ) : (
               <div className="bg-card p-12 rounded-2xl border border-border-card text-center animate-fade-in">
                 <h2 className="text-md font-bold uppercase tracking-wider mb-2 text-accent">近日公開</h2>
