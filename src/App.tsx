@@ -149,6 +149,12 @@ const mapRowToTask = (row: SupabaseTaskRow): Task => ({
   projectId: row.project_id,
 });
 
+// 【ポーリング改善・2026-08-30】20秒ごとのポーリングで内容が変わっていないのに
+// setTasks/setNotificationTasksを呼んでしまうと、配列・オブジェクトの参照が毎回
+// 新しくなるため無駄な再レンダリングが起きる。内容が完全に同じ場合はstate更新自体を
+// スキップするための簡易比較（この規模のアプリではJSON文字列比較で十分）
+const tasksEqual = (a: Task[], b: Task[]) => JSON.stringify(a) === JSON.stringify(b);
+
 // Supabaseから取得した1行分のプロジェクト生データの型（projectsテーブル）。
 // mapRowToTaskと同様、このファイル内でフロント用のProject型へ変換する
 interface SupabaseProjectRow {
@@ -301,24 +307,32 @@ export default function App() {
   // currentProjectIdで絞り込み、未選択（null）の間は取得自体を行わない
   // （プロジェクト管理機能_要件定義書.md §1・§4。tasks.project_idはNOT NULL制約のため、
   // 未選択のままクエリしても意味のある結果にならない）
-  const refreshTasks = async () => {
+  // 【ポーリング改善・2026-08-30】opts.silentは20秒ポーリングからの呼び出し時にtrueを渡す。
+  // 通常のsetTasksLoading表示（tasks.length === 0の間だけ出るローディング表示）は初回読み込みや
+  // プロジェクト切り替え時にのみ必要で、バックグラウンドのポーリングでは不要なstate更新のため
+  const refreshTasks = async (opts?: { silent?: boolean }) => {
     if (!currentProjectId) {
       setTasks([]);
       return;
     }
-    setTasksLoading(true);
+    if (!opts?.silent) setTasksLoading(true);
     const { data, error } = await supabase
       .from('tasks')
       .select('*, task_assignees(user_id), task_subtasks(id, title, done)')
       .eq('project_id', currentProjectId)
-      .order('created_at', { ascending: false });
-    setTasksLoading(false);
+      // 【ポーリング改善・2026-08-30】created_atが同一の行が複数ある場合、この二次キーが
+      // ないとPostgres側で返却順が確定せず、ポーリングのたびにカードの並びが入れ替わって
+      // 見える（画面がかくつく・動く原因の一つ）。idで確定させることで並び順を安定させる
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true });
+    if (!opts?.silent) setTasksLoading(false);
 
     if (error) {
       console.error('タスクの取得に失敗しました:', error);
       return;
     }
-    setTasks(((data ?? []) as SupabaseTaskRow[]).map(mapRowToTask));
+    const next = ((data ?? []) as SupabaseTaskRow[]).map(mapRowToTask);
+    setTasks((prev) => (tasksEqual(prev, next) ? prev : next));
   };
 
   // 【ステップ8：通知ベルの全プロジェクト横断対応】通知ベル用に、project_idで絞り込まず
@@ -329,13 +343,16 @@ export default function App() {
     const { data, error } = await supabase
       .from('tasks')
       .select('*, task_assignees(user_id), task_subtasks(id, title, done)')
-      .order('created_at', { ascending: false });
+      // 【ポーリング改善・2026-08-30】refreshTasksと同様、二次キーで並び順を確定させる
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true });
 
     if (error) {
       console.error('通知用タスクの取得に失敗しました:', error);
       return;
     }
-    setNotificationTasks(((data ?? []) as SupabaseTaskRow[]).map(mapRowToTask));
+    const next = ((data ?? []) as SupabaseTaskRow[]).map(mapRowToTask);
+    setNotificationTasks((prev) => (tasksEqual(prev, next) ? prev : next));
   };
 
   // Supabaseから自分の参加プロジェクト一覧を取得し直す共通関数。RLS
@@ -345,7 +362,9 @@ export default function App() {
     const { data, error } = await supabase
       .from('projects')
       .select('*')
-      .order('created_at', { ascending: true });
+      // 【ポーリング改善・2026-08-30】refreshTasksと同様、二次キーで並び順を確定させる
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
 
     if (error) {
       console.error('プロジェクト一覧の取得に失敗しました:', error);
@@ -478,10 +497,18 @@ export default function App() {
   // 【ステップ8】通知ベルは全プロジェクト横断（notificationTasks）になったため、こちらも
   // 同じタイマーで一緒に取得し直す。refreshNotificationTasks自体はcurrentProjectIdに
   // 依存しないが、同じ間隔で回して問題ないため、既存のタイマーに相乗りさせている
+  //
+  // 【ポーリング改善・2026-08-30】ユーザーから「20秒ごとに画面がかくつく／動く」との報告。
+  // 主因は、created_at一意の二次キーがなくSupabase側の行の返却順が不安定だったこと
+  // （同着タスクの並びがポーリングのたびに入れ替わって見えていた）。refreshTasks／
+  // refreshNotificationTasks／refreshProjectsの.order()にidを二次キーとして追加し解消。
+  // 併せて、内容に変化がない場合はsetTasks等を呼ばないようにし（tasksEqual参照）、
+  // ポーリング中のsetTasksLoading表示も抑制（silentオプション）して無駄な再レンダリングを削減。
+  // 本格対応（Supabase Realtime導入）は仕様書.md／認証・DB設計書.mdにTODOとして記載済み
   useEffect(() => {
     if (!isAuthenticated) return;
     const intervalId = setInterval(() => {
-      refreshTasks();
+      refreshTasks({ silent: true }); // 【ポーリング改善・2026-08-30】バックグラウンド更新なのでローディング表示は出さない
       refreshNotificationTasks();
     }, 20000); // 20秒間隔（頻度を上げすぎるとAPI呼び出しが増えるため、通知用途としてはこの程度で妥協）
     return () => clearInterval(intervalId);
