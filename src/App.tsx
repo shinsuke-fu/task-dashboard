@@ -61,6 +61,14 @@
  *      ヘッダーの通知ベルは直近6件＋プロジェクト名タグのプレビューに徹し、全件は
  *      「すべて見る→」から通知専用画面（NotificationsView.tsx・currentView='notifications'。
  *      サイドバーには項目を増やさず、設定ページと同様ベルからのみ入る）で確認する構成にした
+ *  12. 【ゲストログイン・2026-08-31】ポートフォリオ経由の訪問者向けに、登録不要で試せる
+ *      「ゲストとしてログイン」ボタン（src/pages/Login.tsx）を用意した。Supabaseの匿名認証
+ *      （signInAnonymously）でログインし、ログイン直後の初回プロジェクト一覧取得
+ *      （projectsLoaded）が完了してプロジェクトが0件だと確定した時点で、デモ用プロジェクト・
+ *      サンプルタスクを自動投入する（seedGuestDemoData。Login.tsx側ではなくここで行う理由は
+ *      同関数のコメント参照：取得と作成の競合を避けるため）。ログアウト時（handleLogout）は、
+ *      匿名アカウントなら既存のdelete_own_account()を呼んでからサインアウトすることで、
+ *      デモデータ・匿名アカウント自体がDBに溜まり続けないようにしている
  * -----------------------------------------------------------------------
  */
 import { useState, useEffect, useRef } from 'react';
@@ -155,6 +163,106 @@ const mapRowToTask = (row: SupabaseTaskRow): Task => ({
 // スキップするための簡易比較（この規模のアプリではJSON文字列比較で十分）
 const tasksEqual = (a: Task[], b: Task[]) => JSON.stringify(a) === JSON.stringify(b);
 
+// 【ゲストログイン・2026-08-31】JST基準の「今日」からの相対日数でYYYY-MM-DD文字列を作る
+// （ポートフォリオを見るタイミングに関わらず、常に「今日から見て自然な期日」のサンプルに
+// なるようにするため。utils/date.tsのgetTodayJstDateStringと同じJST基準で計算する）
+const dateFromToday = (offsetDays: number): string => {
+  const [year, month, day] = getTodayJstDateString().split('-').map(Number);
+  const d = new Date(Date.UTC(year, month - 1, day + offsetDays));
+  return d.toISOString().slice(0, 10);
+};
+
+// 【ゲストログイン・2026-08-31】ゲストとしてログインした直後に、デモ用プロジェクトと
+// サンプルタスクを一式投入する。カンバンの4ステータス・優先度・カテゴリをばらけさせ、
+// 1件はあえて期日超過にして「遅延中」の強調表示（規約.md：上書き禁止の仕様）も
+// 見てもらえるようにしている。成功したら新規プロジェクトのIDを返す（呼び出し側で
+// currentProjectIdに設定してもらうため）。
+// 【不具合修正・2026-08-31】当初はsrc/pages/Login.tsx側で（signInAnonymously()の直後に）
+// 呼んでいたが、それだとApp.tsx側のログイン検知（onAuthStateChange）による
+// 「プロジェクト一覧の取得」と競合し、取得の方が先に終わって新規プロジェクトが
+// 画面に反映されないことがあった。App.tsx側（初回のプロジェクト一覧取得が完了した後）から
+// 呼ぶことで、この競合を避けている（呼び出し箇所はuseEffect参照）
+const seedGuestDemoData = async (guestUserId: string): Promise<string | null> => {
+  const { data: project, error: projectError } = await supabase
+    .from('projects')
+    .insert({
+      name: 'デモプロジェクト',
+      description: 'ゲストログインで自動生成されたデモ用プロジェクトです。自由に編集・削除して試してください。',
+      status: 'active',
+      created_by: guestUserId,
+    })
+    .select('id')
+    .single();
+
+  if (projectError || !project) {
+    console.error('デモプロジェクトの作成に失敗しました:', projectError);
+    return null;
+  }
+
+  const sampleTasks = [
+    {
+      title: 'サイト全体のワイヤーフレーム作成',
+      description: 'トップページ〜下層ページまでの構成案をまとめる。',
+      status: 'done',
+      category: 'デザイン',
+      start_date: dateFromToday(-10),
+      end_date: dateFromToday(-4),
+      priority: 'medium',
+    },
+    {
+      title: 'ダッシュボードのAPI連携',
+      description: '各種KPIカードに実データを流し込む。',
+      status: 'doing',
+      category: '開発',
+      start_date: dateFromToday(-2),
+      end_date: dateFromToday(3),
+      priority: 'high',
+    },
+    {
+      title: 'デモ用データのレビュー依頼',
+      description: '投入したサンプルデータに問題がないか確認してもらう。',
+      status: 'review',
+      category: '開発',
+      start_date: dateFromToday(-1),
+      end_date: dateFromToday(1),
+      priority: 'medium',
+    },
+    {
+      title: '月次レポートの下書き',
+      description: '先月分の進捗をまとめて共有する。',
+      status: 'todo',
+      category: 'マーケ',
+      start_date: dateFromToday(0),
+      end_date: dateFromToday(7),
+      priority: 'low',
+    },
+    {
+      title: '先週分の議事録アップロード',
+      description: '共有フォルダへのアップロードがまだ済んでいない。',
+      status: 'todo',
+      category: 'その他',
+      start_date: dateFromToday(-9),
+      end_date: dateFromToday(-2), // あえて期日超過にして「遅延中」表示を確認できるようにする
+      priority: 'high',
+    },
+  ];
+
+  for (const task of sampleTasks) {
+    const { data: inserted, error: taskError } = await supabase
+      .from('tasks')
+      .insert({ ...task, reviewer_id: null, created_by: guestUserId, project_id: project.id })
+      .select('id')
+      .single();
+    if (taskError || !inserted) {
+      console.error('デモ用サンプルタスクの作成に失敗しました:', taskError);
+      continue;
+    }
+    await supabase.from('task_assignees').insert({ task_id: inserted.id, user_id: guestUserId });
+  }
+
+  return project.id;
+};
+
 // Supabaseから取得した1行分のプロジェクト生データの型（projectsテーブル）。
 // mapRowToTaskと同様、このファイル内でフロント用のProject型へ変換する
 interface SupabaseProjectRow {
@@ -228,6 +336,13 @@ export default function App() {
   // 参加中プロジェクトの一覧（Supabaseの`projects`テーブルから取得。RLSにより自分が
   // メンバーのプロジェクトのみが返る。プロジェクト管理機能_要件定義書.md §3.1）
   const [projects, setProjects] = useState<Project[]>([]);
+
+  // 【ゲストログイン・2026-08-31】ログイン直後の「初回のプロジェクト一覧取得」が
+  // 完了したかどうかのフラグ。ゲスト（匿名）ユーザーのデモデータ自動投入は、
+  // このフラグがtrueになってから（＝projectsが本当に0件だと確定してから）行う
+  // ことで、取得とデモデータ作成の競合を避ける（refreshProjects・useEffect参照）
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
+  const guestSeedStartedRef = useRef(false);
 
   // 選択中プロジェクトのID。テーマと同様、複数人で共有する必要のない「個人の選択状態」
   // なのでブラウザのlocalStorageに保存し、リロードしても直前に見ていたプロジェクトを
@@ -358,6 +473,9 @@ export default function App() {
   // Supabaseから自分の参加プロジェクト一覧を取得し直す共通関数。RLS
   // （projects_select_member。supabase-migration-projects.sql参照）が自分がメンバーの
   // プロジェクトだけを返すため、クライアント側でのuser_id絞り込みは不要
+  //
+  // 【ゲストログイン・2026-08-31】末尾でprojectsLoadedをtrueにする（成功・失敗どちらでも）。
+  // これにより「ログイン直後の初回取得が完了した」ことを他のuseEffectから判定できる
   const refreshProjects = async () => {
     const { data, error } = await supabase
       .from('projects')
@@ -368,9 +486,11 @@ export default function App() {
 
     if (error) {
       console.error('プロジェクト一覧の取得に失敗しました:', error);
+      setProjectsLoaded(true);
       return;
     }
     setProjects(((data ?? []) as SupabaseProjectRow[]).map(mapRowToProject));
+    setProjectsLoaded(true);
   };
 
   // 【ステップ4：プロジェクト管理タブ】カード表示用の「メンバー数」「タスク進捗」を取得する。
@@ -413,6 +533,10 @@ export default function App() {
       setUsers([]);
       setProjects([]);
       setNotificationTasks([]);
+      // 【ゲストログイン・2026-08-31】ログアウトのたびにリセットし、次回ログイン時に
+      // 「初回のプロジェクト一覧取得」を正しく待てるようにする（guestSeedStartedRefも同様）
+      setProjectsLoaded(false);
+      guestSeedStartedRef.current = false;
       return;
     }
 
@@ -443,6 +567,31 @@ export default function App() {
       cancelled = true;
     };
   }, [isAuthenticated]);
+
+  // 【ゲストログイン・2026-08-31】ゲスト（匿名）ユーザーが、ログイン直後のプロジェクト一覧取得
+  // （projectsLoaded）が完了し、プロジェクトが本当に0件だと確定した時点で、デモ用の
+  // プロジェクト・サンプルタスクを自動投入する。guestSeedStartedRefで二重実行を防ぐ
+  // （なぜLogin.tsx側ではなくここで行うかはseedGuestDemoData定義部のコメント参照。
+  // 投入完了後、プロジェクト一覧・集計・通知を再取得し、新規プロジェクトを選択状態にする。
+  // タスク一覧（tasks）自体はcurrentProjectIdの変化を検知する下のuseEffectが自動的に
+  // 取得し直すため、ここで明示的に呼ぶ必要はない）
+  useEffect(() => {
+    if (!isAuthenticated || !projectsLoaded) return;
+    if (!session?.user.is_anonymous) return;
+    if (projects.length > 0) return;
+    if (guestSeedStartedRef.current) return;
+    guestSeedStartedRef.current = true;
+
+    (async () => {
+      const newProjectId = await seedGuestDemoData(currentUserId);
+      await refreshProjects();
+      await refreshProjectSummaries();
+      await refreshNotificationTasks();
+      if (newProjectId) {
+        setCurrentProjectId(newProjectId);
+      }
+    })();
+  }, [isAuthenticated, projectsLoaded, session, projects.length, currentUserId]);
 
   // ログイン状態、または選択中プロジェクトが変わるたびにタスク一覧を取得し直す
   // （サイドバーのアコーディオンでプロジェクトを切り替えた瞬間もここで再取得される）
@@ -1022,12 +1171,31 @@ export default function App() {
     return null;
   };
 
+  // 【ゲストログイン・2026-08-31不具合対応】delete_own_account()でauth.usersの自分自身の
+  // 行を削除した直後にsupabase.auth.signOut()を呼ぶと、Supabase側が「JWTのsubクレームに
+  // 対応するユーザーが見つからない」（code: user_not_found）というエラーを返すことがある
+  // （Supabase Auth側の既知の挙動。GitHub Issue: supabase/auth#1801等）。ローカルの
+  // セッションをクリアするという目的自体は達成できるため、scope: 'local'を指定した上で
+  // エラーは無視する（アカウント自体は既にDB上から削除済みなので実害はなく、動作確認でも
+  // ログイン画面へ正しく戻ること・ゲストデータが実際に消えていることを確認済み。この経路では
+  // 毎回必ず発生する想定内のエラーのため、コンソールを紛らわしくしないためログにも出さない）。
+  // 退会（handleDeleteAccount）・ゲストログアウト（handleLogout）の両方で共通して使う
+  const signOutAfterAccountDeletion = async () => {
+    try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch {
+      // 上記コメント参照：想定内のため何もしない
+    }
+  };
+
   // 退会（アカウント削除。設定ページの「データ」タブから呼ばれる）。
   // Supabaseのanonキーではauth.usersを直接削除できないため、あらかじめ用意した
   // security definer関数`delete_own_account()`（supabase-migration-account-deletion.sql
   // 参照）をRPC経由で呼ぶ。パスワード変更と同様、実行前に現在のパスワードで再認証して
   // 本人確認する。削除成功後はローカルのセッションもクリアするためsignOutを呼んでおく
-  // （auth.users自体は既に消えているため、サーバー側には既にセッションは存在しない）
+  // （auth.users自体は既に消えているため、サーバー側には既にセッションは存在しない。
+  // 【ゲストログイン・2026-08-31不具合対応】このため通常のsignOut()ではなく
+  // signOutAfterAccountDeletionを使う）
   const handleDeleteAccount = async (password: string): Promise<string | null> => {
     const email = session?.user.email;
     if (!email) return 'ログイン情報を確認できませんでした。再度ログインし直してください。';
@@ -1038,14 +1206,26 @@ export default function App() {
     const { error: rpcError } = await supabase.rpc('delete_own_account');
     if (rpcError) return '削除に失敗しました: ' + rpcError.message;
 
-    await supabase.auth.signOut();
+    await signOutAfterAccountDeletion();
     return null;
   };
 
   // ログアウト（設定ページやSidebarのログアウトボタンから呼ばれる）。
   // 誤タップでのログアウトを防ぐため、実行前に確認ダイアログを挟む
+  //
+  // 【ゲストログイン・2026-08-31】ゲスト（匿名）アカウントの場合は、ログアウト前に
+  // 既存のdelete_own_account()（退会機能のRPC。auth.uid()基準で「自分自身」のデータのみ
+  // 削除する）を呼び、Login.tsx側で自動投入したデモ用プロジェクト・タスクごと片付けてから
+  // サインアウトする。これにより匿名アカウントがDBに溜まり続けるのを防ぐ（Login.tsx参照）。
+  // 削除後のsignOutはsignOutAfterAccountDeletionを使う（上記コメント参照）
   const handleLogout = async () => {
     if (!window.confirm('ログアウトしますか？')) return;
+    if (session?.user.is_anonymous) {
+      const { error } = await supabase.rpc('delete_own_account');
+      if (error) console.error('ゲストデータの削除に失敗しました:', error);
+      await signOutAfterAccountDeletion();
+      return;
+    }
     await supabase.auth.signOut();
   };
 

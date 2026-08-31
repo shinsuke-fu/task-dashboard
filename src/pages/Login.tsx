@@ -19,6 +19,17 @@
  *      メール内リンクをクリックした後の「新しいパスワードを入力する」画面は
  *      別コンポーネント（`ResetPassword.tsx`）が担当し、App.tsx側で
  *      `onAuthStateChange`の`PASSWORD_RECOVERY`イベントを検知して出し分ける
+ *   6. 【ゲストログイン・2026-08-31】ポートフォリオ経由の訪問者が登録なしで
+ *      試せるよう、Supabaseの匿名認証（signInAnonymously）を使った「ゲストとして
+ *      ログイン」ボタンを用意。このコンポーネントの役割はsignInAnonymously()を呼ぶだけで、
+ *      デモ用プロジェクト・サンプルタスクの自動投入はApp.tsx側で行う
+ *      （App.tsx冒頭のコメント・seedGuestDemoData参照）。
+ *      【不具合修正・2026-08-31】当初はこのコンポーネント内で投入まで完結させていたが、
+ *      signInAnonymously()成功と同時にApp.tsx側のログイン検知（onAuthStateChange）が走り、
+ *      「プロジェクト一覧の取得」と「デモデータの作成」が競合し、取得の方が先に終わって
+ *      新規プロジェクトが画面に反映されない、という再現性の低い不具合があった。
+ *      App.tsx側に処理を寄せることで、「初回のプロジェクト一覧取得が完了した後に
+ *      デモデータを作成し、作成完了後に明示的に再取得する」という順序を保証している
  * -----------------------------------------------------------------------
  */
 import React, { useState } from 'react';
@@ -35,6 +46,7 @@ export const Login: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [signupEmailSent, setSignupEmailSent] = useState(false);
   const [resetEmailSent, setResetEmailSent] = useState(false);
+  const [isGuestSubmitting, setIsGuestSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,6 +88,20 @@ export const Login: React.FC = () => {
       }
     }
     setIsSubmitting(false);
+  };
+
+  // 【ゲストログイン・2026-08-31】登録・パスワード不要でその場で試せる、匿名ログイン用ハンドラ。
+  // 成功後の画面遷移・デモデータの自動投入は、いずれもApp.tsx側のonAuthStateChangeに任せる
+  // （ファイル冒頭のコメント参照。以前はここでデモデータ作成まで行っていたが、競合を避けるため移動した）
+  const handleGuestLogin = async () => {
+    setErrorMessage(null);
+    setIsGuestSubmitting(true);
+
+    const { error } = await supabase.auth.signInAnonymously();
+    if (error) {
+      setErrorMessage(translateAuthError(error.message));
+    }
+    setIsGuestSubmitting(false);
   };
 
   // Supabaseのエラーメッセージ（英語）のうち、よくあるものだけ日本語に置き換える。
@@ -186,6 +212,30 @@ export const Login: React.FC = () => {
             >
               新規登録
             </button>
+          </div>
+        )}
+
+        {/* 【ゲストログイン・2026-08-31】登録・パスワード不要でその場で試せる案内。
+            ポートフォリオ経由の訪問者向けの導線のため、パスワード再設定画面では表示しない */}
+        {mode !== 'resetRequest' && (
+          <div className="mb-5">
+            <button
+              type="button"
+              onClick={handleGuestLogin}
+              disabled={isGuestSubmitting || isSubmitting}
+              className="w-full h-9 bg-zinc-900/60 hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed border border-zinc-800 text-zinc-300 text-xs font-medium rounded-lg transition-all active:scale-[0.99] cursor-pointer"
+            >
+              {isGuestSubmitting ? '準備中…' : 'ゲストとしてログイン（登録不要）'}
+            </button>
+            <p className="mt-2 text-[10px] text-zinc-600 leading-relaxed text-center">
+              サンプルデータ入りのデモ用アカウントですぐに操作を試せます。ログアウトすると
+              作成したデータは自動的に削除されます。
+            </p>
+            <div className="flex items-center gap-2 mt-4 mb-1">
+              <div className="flex-1 h-px bg-zinc-800" />
+              <span className="text-[10px] text-zinc-600">または</span>
+              <div className="flex-1 h-px bg-zinc-800" />
+            </div>
           </div>
         )}
 
