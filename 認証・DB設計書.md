@@ -7,6 +7,7 @@
 デバイス上での動作確認も一部進んでいます。詳細は10章「実装後の補足」を参照してください）。
 **2026-08-29追加：プロジェクト管理機能を実装（11章参照）。0章で「対象外」としていた
 スコープを解禁した**
+**2026-08-31追加：ゲストログイン機能（Supabase匿名認証）を実装（12章参照）**
 
 作成日：2026-08-20
 確定日：2026-08-20（4点の要確認事項に回答をもらい、内容を確定）
@@ -28,6 +29,11 @@
   （NOT NULL）を追加。実装時に発生した2件のRLS不具合（再帰的RLS参照・INSERT直後のRETURNING
   と鶏と卵になる可視性チェック）と、その対処を11章にまとめて記録した。`delete_own_account`
   関数も、退会時に自分1人だけのオーナープロジェクトを削除するステップを追加する形で拡張した
+- 2026-08-31：**ゲストログイン機能を実装**（12章に新設）。Supabaseの匿名認証
+  （`signInAnonymously`）を使い、会員登録なしでその場でアプリを試せるようにした。
+  `handle_new_user`関数を匿名ユーザー（emailがNULL）対応に修正。デモ用プロジェクト・
+  サンプルタスクの自動投入時に発生したレースコンディション、退会×ログアウト経由で発覚した
+  `signOut()`の既知の不具合（`user_not_found`）と、その対処を12章にまとめて記録した
 
 ---
 
@@ -664,3 +670,120 @@ where id in (
   理由で保留中です（`仕様書.md`8章参照）。
 - ロール管理は「プロジェクト単位のオーナー／メンバー」のみを実装し、組織全体の管理者ロールは
   設計のみ（要件定義書§7.3）に留めています（YAGNI判断）。
+
+## 12. ゲストログイン機能（2026-08-31）
+
+### 12.1 概要
+
+ポートフォリオサイト経由の訪問者が、会員登録・パスワード入力なしでその場でアプリを試せる
+ようにするための機能です。Supabase Auth標準の**匿名認証（Anonymous Sign-ins）**を使いました。
+
+- Supabaseダッシュボード → Authentication → Sign In / Providers →「Anonymous sign-ins」を
+  有効化（設定を変更したら必ず保存すること。保存し忘れると`Anonymous sign-ins are disabled`
+  エラーになる）
+- 追加コストは、既存のSupabaseプロジェクト（同じ料金プラン）の範囲内で収まる想定です
+  （2026-08時点のSupabase料金：Freeプランで同時接続200・月200万メッセージまで無料。
+  匿名ユーザーもこの枠内に含まれ、少人数のデモ利用であれば問題になりません）
+- 匿名ユーザーもPostgRESTに対しては通常の`authenticated`ロールとして扱われるため、
+  5章・11.5のRLSポリシーはそのまま適用されます（RLS側の変更は不要でした）
+
+### 12.2 `handle_new_user`関数の修正（`supabase-migration-guest-login.sql`）
+
+既存の`handle_new_user`トリガー（4.1参照）は、新規ユーザー登録時に`profiles.display_name`を
+「①メタデータの表示名 → ②メールアドレスの@より前」の順で決めていましたが、匿名ユーザーは
+`email`自体が`NULL`のため②のフォールバックも失敗し、`display_name`が`NULL`になって
+NOT NULL制約違反でユーザー作成自体が失敗してしまいます。3番目のフォールバックとして
+「`ゲスト` + ユーザーIDの先頭4文字」を追加しました。
+
+```sql
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  insert into public.profiles (id, display_name)
+  values (
+    new.id,
+    coalesce(
+      new.raw_user_meta_data ->> 'display_name',
+      split_part(new.email, '@', 1),
+      'ゲスト' || substr(new.id::text, 1, 4)
+    )
+  );
+  return new;
+end;
+$$;
+```
+
+### 12.3 デモデータの自動投入とレースコンディション対策
+
+ゲストとしてログインした直後、デモ用プロジェクト＋サンプルタスク5件（todo/doing/review/done
+の各ステータス・優先度・カテゴリをばらけさせ、1件はあえて期日超過にしてある）を自動投入する
+`seedGuestDemoData`関数を用意しました。
+
+当初は`src/pages/Login.tsx`側で（`signInAnonymously()`の直後に）呼んでいましたが、これだと
+`signInAnonymously()`が成功した瞬間に`App.tsx`側のログイン検知（`onAuthStateChange`）が走り、
+「プロジェクト一覧の取得（`refreshProjects`）」と「デモデータの作成」が競合し、**取得の方が
+先に終わってしまい、新規プロジェクトが画面に反映されない**という再現性の低い不具合がありました
+（毎回必ず発生するわけではなく、通信のタイミング次第だったため発見が遅れました）。
+
+**対処**：デモデータ投入の責務を`App.tsx`側へ移しました。`projectsLoaded`という「ログイン直後の
+初回プロジェクト一覧取得が完了したか」を示すstateを新設し、これが`true`になって（＝プロジェクトが
+本当に0件だと確定して）から初めてデモデータを作成するようにしました。作成後は明示的に
+`refreshProjects` / `refreshProjectSummaries` / `refreshNotificationTasks`を呼び直し、
+`currentProjectId`を新規プロジェクトへセットします（二重実行防止に`guestSeedStartedRef`を使用）。
+`Login.tsx`側の役割は`signInAnonymously()`を呼ぶだけに戻しました。
+
+**同じ「ログイン検知をトリガーに複数の非同期処理を走らせる」設計をする際は、それぞれの処理が
+互いの完了を待たずに独立して走ることを前提に、明示的な完了フラグ（本件の`projectsLoaded`）で
+順序を保証すること**（今後の教訓として記録）。
+
+### 12.4 発生した不具合と対処（実装時に判明）
+
+**① ログアウト時の`user_not_found`エラー**
+
+退会（`delete_own_account()`）でauth.usersの自分自身の行を削除した直後に
+`supabase.auth.signOut()`を呼ぶと、Supabase側が「JWTの`sub`クレームに対応するユーザーが
+見つからない」（`code: user_not_found`。ブラウザの開発者ツールには
+`POST /auth/v1/logout?scope=local 403 (Forbidden)`というネットワークエラーとしても表示される）
+というエラーを返すことがあります（Supabase Auth側の既知の挙動）。ローカルのセッションを
+クリアするという目的自体は達成できるため実害はなく、動作確認でも「ログイン画面へ正しく戻る」
+「データが実際に削除される」ことを確認済みです。
+
+**対処**：`scope: 'local'`を指定した上でエラーは無視する共通ヘルパー
+（`signOutAfterAccountDeletion`）を用意し、退会（`handleDeleteAccount`）・ゲストログアウトの
+両方から呼ぶようにしました。ブラウザが自動的に表示するネットワークエラーログ自体は、
+アプリのコード側では消せません（`仕様書.md`8章にも既知の制約として記録）。
+
+**このバグは、ゲストログイン機能で新たに生まれたものではなく、既存の退会機能
+（`handleDeleteAccount`）にも元々あったものです**。ただし退会の実際のE2Eテストが保留中
+だったため（11.8参照）、これまで一度も実際に踏んでいなかった経路でした。ゲストログアウトが
+「自分自身を削除してからサインアウトする」という同じ経路を初めて実際に通したことで発覚しました。
+
+**② `JWT issued at future`（PGRST303）エラー**
+
+開発中、ごく短期間ですが`{code: 'PGRST303', message: 'JWT issued at future'}`により
+プロジェクト作成・タスク作成が401で失敗する現象が発生しました。これはPostgREST側が
+「このJWTの発行時刻が未来になっている」と判断して拒否するエラーで、Supabase内部のAuthと
+PostgREST間の時刻同期のズレ（30秒以上）が原因とされています。アプリのコードが原因では
+なく、こちら側で直せる問題ではありません。時間を置く、またはクライアント端末のシステム時計を
+同期し直すことで解消することが多いようです（今回は自然に解消しました）。
+
+### 12.5 実際に追加・変更したファイル
+
+| ファイル | 変更内容 |
+|---|---|
+| `supabase-migration-guest-login.sql`（新規） | `handle_new_user`関数の修正（12.2） |
+| `src/pages/Login.tsx` | 「ゲストとしてログイン」ボタン・`handleGuestLogin`（`signInAnonymously()`を呼ぶだけ） |
+| `src/App.tsx` | `seedGuestDemoData`・`projectsLoaded`・`guestSeedStartedRef`・デモデータ自動投入用の`useEffect`（12.3）。`signOutAfterAccountDeletion`共通ヘルパー（12.4①）。`handleLogout`のゲスト分岐 |
+
+### 12.6 実装後の補足
+
+- Supabaseダッシュボードでの「Anonymous sign-ins」設定漏れ・保存漏れがあると、
+  `Anonymous sign-ins are disabled`エラーになります。有効化後は画面を再読み込みして
+  設定が保存されていることを確認してください。
+- ゲスト（匿名）アカウントは、ログアウト時に自動的に削除される設計です。ログアウトせずに
+  ブラウザを閉じただけの場合、そのアカウント・デモデータはDB上に残り続けます。将来的に、
+  一定期間操作のない匿名アカウントを定期的に一括削除する仕組み（バッチ処理等）があると
+  より丁寧ですが、YAGNI判断で今回は見送りました（`仕様書.md`8章にTODOとして記載）。
