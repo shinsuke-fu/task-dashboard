@@ -7,8 +7,10 @@
  *
  * 【主な処理】
  *   1. isOpenがtrueになった瞬間にフォーム項目を初期化（新規 or 編集内容）
- *   2. 作業担当者はチェックボックスで複数選択可能（新規作成時は自分のみ
- *      選択された状態が初期値。0人にはできない）
+ *   2. 作業担当者・確認者は、検索付きコンボボックス（UserPicker.tsx）で選択する
+ *      （担当者は複数選択可・最低1人必須、確認者は単一選択。2026-09-02、
+ *      feature/assignee-reviewer-picker。人数が増えるとチェックボックス列挙・
+ *      ネイティブ<select>では選びにくいという指摘を受けて置き換えた）
  *   3. 確認者（レビュアー）は、作業担当者に選ばれていないユーザーの中から選択
  *   4. サブタスク（チェックリスト）の追加・チェック切替・削除を管理する
  *      （承認フローには関与しない、担当者向けの簡易メモという位置づけ）
@@ -34,6 +36,7 @@
 import { useState, useEffect } from 'react';
 import type { Task, User, Subtask, Project } from '../types/task';
 import { getTodayJstDateString } from '../utils/date';
+import UserPicker from './UserPicker';
 
 interface ProjectMemberInfo {
   userId: string;
@@ -131,16 +134,12 @@ export default function TaskForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]); // 依存配列を isOpen のみに絞ることで、送信時の逆流リセットバグを完全消滅させます（currentUserId/users/projects/projectMembers/currentProjectIdは意図的に含めない）
 
-  // 担当者チェックボックスの選択・解除を切り替える。
-  // 担当者は最低1人必須のため、残り1人の状態からの解除操作は無視する
-  const handleToggleAssignee = (userId: string) => {
-    setAssigneeIds(prev => {
-      if (prev.includes(userId)) {
-        if (prev.length === 1) return prev; // 最後の1人は解除させない
-        return prev.filter(id => id !== userId);
-      }
-      return [...prev, userId];
-    });
+  // UserPicker.tsx（検索付きコンボボックス）からの選択変更を受け取る。
+  // 担当者は最低1人必須のため、0人にしようとする変更は無視する
+  // （UserPicker自体は汎用部品としてこの業務ルールを持たないため、ここで担保する）
+  const handleAssigneeChange = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setAssigneeIds(ids);
   };
 
   // 【ステップ6】プロジェクト移動欄（編集時のみ表示）の変更処理。移動先プロジェクトの
@@ -346,34 +345,19 @@ export default function TaskForm({
             </p>
           </div>
 
-          {/* 作業担当者（複数選択可）：チェックボックスでユーザーを選択 */}
+          {/* 作業担当者（複数選択可）：検索しながら選べるコンボボックス（UserPicker.tsx） */}
           <div>
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">
               作業担当者（複数選択可）
             </label>
-            <div className="flex flex-wrap gap-2">
-              {assigneeCandidates.map(user => {
-                const isSelected = assigneeIds.includes(user.id);
-                return (
-                  <label
-                    key={user.id}
-                    className={`flex items-center gap-1.5 h-8 px-3 rounded-xl border text-[11px] font-bold cursor-pointer transition select-none ${
-                      isSelected
-                        ? 'bg-accent/10 border-accent/40 text-accent'
-                        : 'bg-base border-border-card text-text-sub hover:text-text-main'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => handleToggleAssignee(user.id)}
-                      className="w-3 h-3 accent-current cursor-pointer"
-                    />
-                    {user.name}
-                  </label>
-                );
-              })}
-            </div>
+            <UserPicker
+              mode="multi"
+              users={assigneeCandidates}
+              value={assigneeIds}
+              onChange={handleAssigneeChange}
+              placeholder="担当者を検索..."
+              emptyMessage="追加できる候補がいません"
+            />
             <p className="text-[10px] text-text-sub mt-1.5 pl-1 font-medium">
               ※選択できるのはこのプロジェクトのメンバーのみです。選択した担当者にはSupabase上で
               タスクが共有されます（保存時にtask_assigneesテーブルへ反映）。
@@ -385,17 +369,14 @@ export default function TaskForm({
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">
               タスクの確認者・承認者（上司・レビュアー）
             </label>
-            <select
-              value={reviewerId}
-              onChange={(e) => setReviewerId(e.target.value)}
-              className="w-full h-9 bg-base border border-border-card rounded-xl px-2 font-bold text-text-main cursor-pointer"
-            >
-              {reviewerCandidates.map(user => (
-                <option key={user.id} value={user.id}>
-                  {user.name}
-                </option>
-              ))}
-            </select>
+            <UserPicker
+              mode="single"
+              users={reviewerCandidates}
+              value={reviewerId ? [reviewerId] : []}
+              onChange={(ids) => setReviewerId(ids[0] ?? '')}
+              placeholder="確認者を検索..."
+              emptyMessage="選べる候補がいません（担当者を全員選ぶと0人になります）"
+            />
           </div>
 
           {/* メタデータ選択（カテゴリ・優先度・期日）：スマホ幅では窮屈になるため縦積みにし、
