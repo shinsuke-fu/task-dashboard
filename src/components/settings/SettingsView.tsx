@@ -224,7 +224,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       )}
 
       {/* アプリについて */}
-      {activeTab === 'about' && <AboutSection developerName={displayName} />}
+      {activeTab === 'about' && <AboutSection />}
     </div>
   );
 };
