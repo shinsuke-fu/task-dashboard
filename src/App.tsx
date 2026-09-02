@@ -711,6 +711,16 @@ export default function App() {
   // 「今どのプロジェクトを見ているか常に分かるようにしたい」との理由で追加）
   const currentProject = projects.find((p) => p.id === currentProjectId);
 
+  // 【fix/task-assignees-subtasks-rls・2026-09-02】選択中プロジェクトのメンバーだけに
+  // 絞り込んだuser一覧。ダッシュボードの「メンバー別稼働状況」（ProgressChart.tsx）に
+  // usersをそのまま渡していたため、選択中プロジェクトに無関係な全ユーザー（ゲストの
+  // 残骸アカウント含む）まで表示されてしまっていた不具合の修正。TaskForm.tsxの
+  // assigneeCandidates（担当者候補の絞り込み）と同じ考え方
+  const currentProjectMemberIds = new Set(
+    (projectMembers[currentProjectId ?? ''] ?? []).map((m) => m.userId)
+  );
+  const currentProjectMembers = users.filter((u) => currentProjectMemberIds.has(u.id));
+
   // 【ステップ7：オーナー引き継ぎ】自分がオーナーで、かつ他にもメンバーがいる
   // プロジェクト一覧（設定＞データ画面で、退会前に新オーナーへの譲渡を求める対象。
   // 要件定義書§6.2）。projectMembersの更新のたびに再計算されるため、譲渡が完了して
@@ -1587,7 +1597,7 @@ export default function App() {
             {currentView === 'dashboard' ? (
               !currentProjectId ? projectNotSelectedNotice : (
                 <div className="animate-fade-in pb-8">
-                  <DashboardView tasks={tasks} users={users} filterUser={filterUser} filterCategory={filterCategory} filterPriority={filterPriority} />
+                  <DashboardView tasks={tasks} users={currentProjectMembers} filterUser={filterUser} filterCategory={filterCategory} filterPriority={filterPriority} />
                 </div>
               )
             ) : currentView === 'tasks' ? (

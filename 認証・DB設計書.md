@@ -8,6 +8,8 @@
 **2026-08-29追加：プロジェクト管理機能を実装（11章参照）。0章で「対象外」としていた
 スコープを解禁した**
 **2026-08-31追加：ゲストログイン機能（Supabase匿名認証）を実装（12章参照）**
+**2026-09-02追加：ドキュメント監査により、11.5に記載していた`task_assignees`/`task_subtasks`の
+RLSポリシー更新が実は未実施だったことが判明。同日中に`supabase-migration-task-assignees-subtasks-rls-fix.sql`で修正済み（11.5・11.5.1③参照）**
 
 作成日：2026-08-20
 確定日：2026-08-20（4点の要確認事項に回答をもらい、内容を確定）
@@ -563,9 +565,14 @@ grant execute on function public.transfer_project_ownership(uuid, uuid) to authe
   - INSERT：自分がオーナーであるプロジェクトへのみ（メンバー追加はオーナー限定）
   - DELETE：自分がオーナー（他メンバーの削除）、または自分自身の行（脱退）。ただし
     `role = 'owner'`の行は本人でも直接削除できない（オーナー交代は11.4の関数経由のみ）
-- `tasks` / `task_assignees` / `task_subtasks`
+- `tasks`
   - 5章の「ログインしていれば全員」方式から、「そのタスクが所属するプロジェクトのメンバーのみ」
     方式に変更（`is_project_member(project_id)`ベース）
+- `task_assignees` / `task_subtasks`
+  - `tasks`本体と同じ「プロジェクトメンバーのみ」方式に変更（`is_task_project_member(task_id)`
+    ベース。`supabase-migration-task-assignees-subtasks-rls-fix.sql`）。プロジェクト管理機能
+    導入時（8-4）にこの2テーブルだけ更新が漏れており、2026-09-02のドキュメント監査で発覚・
+    同日中に修正した。詳細な経緯・実害・対処は11.5.1③を参照
 
 判定に使う`is_project_member(p_project_id)` / `is_project_owner(p_project_id)`は、
 `security definer`のヘルパー関数として切り出しています（11.5.1で理由を説明）。
@@ -623,6 +630,44 @@ create policy "projects_select_member" on projects
 **同じ組み合わせ（INSERT直後にAFTER INSERTトリガーが別テーブルへ権限系の行を追加し、かつ
 RETURNINGでその場で結果を返す）のRLSポリシーを書くときは、この鶏と卵問題を疑うこと**
 （メンバー追加後に何か即座に返す処理を書く場合も同様の注意が必要）。
+
+**③ `task_assignees` / `task_subtasks`のプロジェクト絞り込み漏れ（2026-09-02発覚・修正）**
+
+プロジェクト管理機能導入（8-4）で`tasks`本体のRLSポリシーを`is_project_member(project_id)`
+ベースへ更新した際、担当者中間テーブル`task_assignees`とサブタスクテーブル`task_subtasks`は
+`project_id`列を持たない（`task_id`経由でしか所属プロジェクトを辿れない）ためポリシー変更の
+対象から漏れており、`supabase-schema.sql`作成時の当初ポリシー（`to authenticated
+using (true)` = ログイン済みなら誰でも閲覧・追加・削除可）のまま残っていました。ドキュメント側
+（本節）には「更新済み」と誤って記載してしまっていたため、2026-09-02のドキュメント監査
+（実コードとの突き合わせ）で発覚しました。
+
+**実害**：`tasks`本体はプロジェクトメンバー以外には見えないため実際のタスク内容までは
+読めませんが、中間テーブル自体はプロジェクトに無関係な認証済みユーザーであっても
+`select * from task_assignees` / `select * from task_subtasks`で全プロジェクト分を横断的に
+取得でき、`task_id`さえ分かれば`insert`・`delete`（`task_subtasks`は`update`も）も通って
+しまう状態でした。`task_subtasks.title`には実際のサブタスク文言が入るため、ゲストの
+デモデータに限らず一般ユーザーの内容も対象になり得ます。
+
+**対処**：`task_id`から所属プロジェクトを辿るsecurity definerヘルパー関数
+`is_task_project_member(p_task_id)`を新設し、`tasks`と同じ「プロジェクトメンバーのみ」方式に
+揃えました（`supabase-migration-task-assignees-subtasks-rls-fix.sql`）。
+
+```sql
+create or replace function public.is_task_project_member(p_task_id uuid)
+returns boolean language sql security definer set search_path = public stable
+as $$ select public.is_project_member(project_id) from tasks where id = p_task_id; $$;
+```
+
+`is_project_member`と同じく`security definer`でRLSをバイパスするため、呼び出し元が対象タスクの
+所属プロジェクトのメンバーでなければ（＝`tasks`側で本来見えない行であれば）`project_id`が
+`null`扱いとなり、`is_project_member(null)`は常に`false`を返して正しく拒否されます。
+
+**教訓（重要）**：中間テーブル・子テーブルに`project_id`列を持たせず親テーブル経由で
+プロジェクトを判定する設計にした場合、**親テーブル（`tasks`）のRLSポリシーを変更したら、
+その親を参照する全ての中間テーブル・子テーブルのRLSポリシーも同時に見直すこと**。
+本件はドキュメント側にも「更新済み」という誤記載が残ってしまっていたため、実装だけでなく
+ドキュメント更新も含めて、新しい参照テーブルを追加した際は関連テーブル一覧を洗い出してから
+着手するのが望ましい。
 
 ### 11.6 `delete_own_account`関数の拡張（退会×オーナー引き継ぎ）
 
