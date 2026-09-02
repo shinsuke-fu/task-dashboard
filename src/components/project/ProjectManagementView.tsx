@@ -1,37 +1,8 @@
 /**
  * src/components/project/ProjectManagementView.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   「プロジェクト管理」タブ本体。自分が参加しているプロジェクトをカード形式で
- *   一覧表示し、新規作成・編集への導線を提供する（プロジェクト管理機能_要件定義書.md
- *   §2.3〜2.4）。サイドバーのアコーディオン（すばやい切り替え用）とは別の、
- *   一覧性・管理操作のための画面という位置づけ。
- *
- * 【主な処理】
- *   1. アーカイブ済みプロジェクトはデフォルトで一覧から隠す方針は維持しつつ（§2.2）、
- *      検索ボックス（プロジェクト名の部分一致）とステータスタブ（すべて／進行中／完了／
- *      アーカイブ）で絞り込めるようにする。「すべて」タブはアーカイブ以外の全件を指し、
- *      アーカイブ済みは専用タブからのみ見られる（ユーザー要望：2026-08-29。以前あった
- *      「アーカイブ済みを表示」チェックボックスはこのタブに統合し廃止）
- *   2. 各カードには、自分のロール（オーナー／メンバー）・メンバー数・タスク進捗％
- *      （完了タスク数／総タスク数。KpiCards.tsxと同じ計算式で統一）を表示する
- *   3. 「開く」ボタンで該当プロジェクトを選択中プロジェクトに切り替える（App.tsx側の
- *      handleSelectProjectを再利用）。「編集」ボタンはオーナーのみに表示する
- *      （projects_update_ownerのRLSと一致させる。supabase.mdのルール）
- *   4. データの取得・作成・編集・削除・メンバー管理の実処理はすべてApp.tsx側に委譲し、
- *      このコンポーネントはPropsで受け取った内容を表示するだけ（規約①：状態はApp.tsxに
- *      一元化）。削除・メンバー削除・オーナー譲渡・脱退の確認ダイアログもApp.tsx側で行う
- *   5. 「編集」「メンバー管理」「削除」はオーナーのみに表示する（projects_update_owner等の
- *      RLSと一致させる）。オーナー以外のメンバーには、代わりに「抜ける」ボタンを表示する
- *      （§2.4・§7.4。オーナー本人は他の誰かへ譲渡するまで抜けられない）。メンバー管理の
- *      実体（一覧・追加・削除・オーナー譲渡）はMemberManagementModal.tsxが担う
- *   6. カードの列数は、ビューポート幅ベースのsm:/lg:ではなくコンテナクエリ（@min-[Npx]:。
- *      App.tsxの<main>に付けた@containerが基準）で切り替える。タブレットでサイドバーを
- *      開いた状態など、ビューポート幅の割に実際の表示領域が狭いケースでボタン行
- *      （削除／メンバー管理／編集／開く）が崩れる不具合があったため（2026-08-29修正。
- *      KanbanBoard.tsxのカラム幅と同じ考え方）。ボタン行自体もflex-wrapにし、
- *      それでも狭い場合はボタンが潰れる代わりに2行へ折り返すようにしてある
- * -----------------------------------------------------------------------
+ * 「プロジェクト管理」タブ本体。参加プロジェクトをカード形式で一覧表示し、検索・
+ * ステータスタブでの絞り込みと新規作成・編集・削除・メンバー管理への導線を提供する。
+ * 実処理（確認ダイアログ含む）はすべてApp.tsx側に委譲する（規約①）。
  */
 import type { Project } from '../../types/task';
 
@@ -88,13 +59,8 @@ export default function ProjectManagementView({
   onManageMembers,
   onLeaveProject,
 }: ProjectManagementViewProps) {
-  // 「すべて」タブはアーカイブ以外の全件（アーカイブ済みは既定で隠す方針を維持。§2.2）。
-  // 検索は名前の部分一致（大文字小文字を区別しない）。表示順は参加プロジェクト一覧
-  // （作成日時の古い順）をそのまま踏襲
-  //
-  // 検索時のみ、Unicode正規化（NFKC）を通してから比較することで、全角/半角の違い
-  // （例：「ABC」と「ＡＢＣ」、「ｱｲｳ」と「アイウ」）を同一視できるようにする
-  // （ユーザー要望：2026-08-29）。プロジェクト名自体の保存・表示内容は一切変更しない
+  // 「すべて」はアーカイブ以外の全件（§2.2の既定非表示を維持）。検索はNFKC正規化してから
+  // 比較するため、全角/半角の違い（「ABC」と「ＡＢＣ」等）を同一視できる
   const trimmedQuery = searchQuery.trim().normalize('NFKC').toLowerCase();
   const visibleProjects = projects.filter((p) => {
     const matchesStatus = statusFilter === 'all' ? p.status !== 'archived' : p.status === statusFilter;
@@ -104,7 +70,6 @@ export default function ProjectManagementView({
 
   return (
     <div className="animate-fade-in pb-8">
-      {/* ヘッダー：タイトル＋新規作成ボタン、その下に検索＋ステータスタブ */}
       <div className="flex flex-col gap-3 mb-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-md font-bold uppercase tracking-wider text-text-main">プロジェクト管理</h2>
@@ -117,8 +82,6 @@ export default function ProjectManagementView({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* ステータスタブ：「すべて」はアーカイブ以外の全件（§2.2の既定非表示を維持しつつ、
-              アーカイブ済みは専用タブから見られるようにする） */}
           <div className="flex items-center gap-1 bg-surface border border-border-card rounded-xl p-1">
             {statusFilterTabs.map((tab) => (
               <button
@@ -135,7 +98,6 @@ export default function ProjectManagementView({
             ))}
           </div>
 
-          {/* プロジェクト名の検索（部分一致） */}
           <input
             type="text"
             value={searchQuery}
@@ -147,7 +109,7 @@ export default function ProjectManagementView({
       </div>
 
       {projects.length === 0 ? (
-        // 参加プロジェクトが0件（新規ユーザー等）のときの空状態案内（§2.3）
+        // 参加プロジェクトが0件（新規ユーザー等）の空状態
         <div className="bg-card p-12 rounded-2xl border border-border-card text-center">
           <h3 className="text-sm font-bold text-text-main mb-2">参加しているプロジェクトがありません</h3>
           <p className="text-xs text-text-sub mb-5">新しいプロジェクトを作成して、タスク管理を始めましょう。</p>
@@ -159,19 +121,15 @@ export default function ProjectManagementView({
           </button>
         </div>
       ) : visibleProjects.length === 0 ? (
-        // 参加プロジェクト自体はあるが、検索・タブの条件に一致するものが無い場合
+        // 参加プロジェクトはあるが、検索・タブの条件に一致するものが無い場合
         <div className="bg-card p-12 rounded-2xl border border-border-card text-center">
           <h3 className="text-sm font-bold text-text-main mb-2">該当するプロジェクトがありません</h3>
           <p className="text-xs text-text-sub">検索条件やタブを変更してみてください。</p>
         </div>
       ) : (
-        // 【レイアウト崩れ修正・2026-08-29】列数の切り替えを、ビューポート幅ベースの
-        // sm:/lg:ではなく、コンテナクエリ（App.tsxの<main>に付けた@container基準）にした。
-        // ビューポート幅だけで判定すると、タブレットでサイドバーを開いた状態のときに
-        // 「ビューポート的には2〜3列に見えるはずの幅だが、実際にこのビューへ残っている
-        // 横幅はもっと狭い」というズレが起き、カード内のボタン行（削除／メンバー管理／
-        // 編集／開く）の文字がはみ出す崩れの原因になっていた（KanbanBoard.tsxの
-        // カラム幅と同じ不具合パターン。同じ@min-[Npx]:方式で解消）
+        // 列数はビューポート幅（sm:/lg:）ではなくコンテナクエリ（App.tsxの<main>の@container基準）
+        // で切り替える。サイドバー展開時など実際の残り幅がビューポート幅と乖離するため
+        // （KanbanBoard.tsxと同じ考え方）
         <div className="grid grid-cols-1 @min-[640px]:grid-cols-2 @min-[1024px]:grid-cols-3 gap-4">
           {visibleProjects.map((project) => {
             const members = projectMembers[project.id] ?? [];
@@ -202,7 +160,7 @@ export default function ProjectManagementView({
                   <span>👤 {members.length}人</span>
                 </div>
 
-                {/* タスク進捗（KpiCards.tsxと同じ「完了数／総数」の計算式で統一） */}
+                {/* KpiCards.tsxと同じ「完了数／総数」の計算式で統一 */}
                 <div>
                   <div className="flex items-center justify-between text-[10px] font-bold text-text-sub mb-1">
                     <span>進捗</span>
@@ -213,10 +171,7 @@ export default function ProjectManagementView({
                   </div>
                 </div>
 
-                {/* 【レイアウト崩れ修正・2026-08-29】flex-wrapを追加し、カード幅が狭いとき
-                    （タブレットでサイドバーを開いた状態など）はボタンが崩れる代わりに
-                    2行に折り返すようにした。gap-y-2で折り返し時の縦の間隔も確保する。
-                    ボタンの横paddingもpx-3→px-2.5に少し詰め、折り返しが起きにくくした */}
+                {/* flex-wrapで、カード幅が狭いとき（サイドバー展開時など）はボタンが崩れる代わりに折り返す */}
                 <div className="flex flex-wrap items-center justify-end gap-2 gap-y-2 pt-1 mt-auto">
                   {/* 編集・メンバー管理・削除はオーナーのみ（projects_update_owner等のRLSと一致させる） */}
                   {isOwner && (

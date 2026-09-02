@@ -1,19 +1,7 @@
 /**
  * src/components/settings/AboutSection.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   設定画面の「アプリについて」タブ。アプリ名・バージョン・技術スタック・
- *   主な機能・リポジトリ/本番サイトへのリンクをまとめた簡易的な紹介カード。
- *   社内の共有会等でこのアプリを軽く紹介する際に、画面をそのまま見せれば
- *   説明が済むようにする目的で用意している（値はsrc/constants/app.tsに集約）。
- *
- * 【主な処理】
- *   表示内容（バージョン・紹介文・技術スタック・機能一覧・公開URL等）は
- *   すべてsrc/constants/app.tsの定数を参照するだけで、このファイル自体に
- *   ロジックはほぼ無い。公開URLは動的取得（window.location.origin）ではなく
- *   固定値にしている（ローカル開発中にこのタブを開くとlocalhost等が
- *   表示されてしまい、共有会等で見せる際に紛らわしいため）。
- * -----------------------------------------------------------------------
+ * 設定画面の「アプリについて」タブ。表示内容はすべてsrc/constants/app.tsの定数を
+ * 参照するだけで、このファイル自体にロジックはほぼ無い簡易的な紹介カード。
  */
 import React from 'react';
 import { APP_NAME, APP_NAME_JA, APP_TAGLINE, APP_VERSION, GITHUB_REPO_URL, PRODUCTION_URL, TECH_STACK, KEY_FEATURES } from '../../constants/app';
@@ -23,11 +11,8 @@ export const AboutSection: React.FC = () => {
     <div className="bg-card border border-border-card rounded-xl p-5 md:p-6 shadow-xs space-y-6">
       <label className="block text-[10px] font-black text-text-sub uppercase">アプリについて</label>
 
-      {/* ロゴ・アプリ名・バージョン。これはプロフィール画像のようなアバターではなく
-          「ブランドロゴ」なので、Sidebar.tsx・Login.tsxのW+ロゴと同じrounded-xl
-          （角丸四角）・文字色（黒固定のtext-slate-950）に統一している。ロゴは装飾要素
-          として黒固定で問題ない、という判断（可読性を気にする必要があるボタン等の
-          文字色は--theme-on-accent。index.css参照） */}
+      {/* アバターではなく「ブランドロゴ」のため、Sidebar.tsx・Login.tsxのW+ロゴと
+          同じrounded-xl・黒固定色（text-slate-950）に統一している */}
       <div className="flex items-center gap-3">
         <div className="w-11 h-11 flex-shrink-0 rounded-xl bg-gradient-to-br from-accent to-sky-500 flex items-center justify-center font-black text-base text-slate-950 shadow-[0_0_15px_rgba(56,189,248,0.25)] tracking-tighter">
           W+
@@ -40,7 +25,6 @@ export const AboutSection: React.FC = () => {
 
       <p className="text-xs text-text-sub leading-relaxed">{APP_TAGLINE}</p>
 
-      {/* 技術スタック */}
       <div>
         <label className="block text-[10px] font-black text-text-sub uppercase mb-2">技術スタック</label>
         <div className="flex flex-wrap gap-1.5">
@@ -55,7 +39,6 @@ export const AboutSection: React.FC = () => {
         </div>
       </div>
 
-      {/* 主な機能 */}
       <div>
         <label className="block text-[10px] font-black text-text-sub uppercase mb-2">主な機能</label>
         <ul className="space-y-1.5">
@@ -68,7 +51,6 @@ export const AboutSection: React.FC = () => {
         </ul>
       </div>
 
-      {/* リンク */}
       <div>
         <label className="block text-[10px] font-black text-text-sub uppercase mb-2">リンク</label>
         <div className="flex flex-col gap-1.5">

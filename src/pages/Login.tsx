@@ -1,36 +1,9 @@
 /**
  * src/pages/Login.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   ログイン画面。App.tsx で isAuthenticated が false のときにのみ表示される。
- *
- * 【主な処理】
- *   1. Supabase Authの signInWithPassword / signUp をそのまま呼び出す
- *      （認証・DB設計書.md 3章の方針通り、メールアドレス＋パスワード方式）
- *   2. サインイン／新規登録はタブで切り替える。新規登録時は表示名も入力する
- *      （その値はDB側のトリガーで`profiles.display_name`に自動反映される）
- *   3. 新規登録が成功したら、メールアドレス確認が必須のため（Supabase Authの
- *      デフォルト設定）「確認メールを送信しました」という案内画面に切り替える
- *   4. サインイン成功後の画面遷移は、このコンポーネントでは行わない。
- *      App.tsx側がSupabaseの`onAuthStateChange`を購読しており、セッションが
- *      できた時点で自動的にログイン後の画面へ切り替わる
- *   5. 「パスワードをお忘れですか？」から遷移するパスワード再設定リクエスト
- *      （メールアドレスのみ入力→ `resetPasswordForEmail` で再設定用メールを送信）。
- *      メール内リンクをクリックした後の「新しいパスワードを入力する」画面は
- *      別コンポーネント（`ResetPassword.tsx`）が担当し、App.tsx側で
- *      `onAuthStateChange`の`PASSWORD_RECOVERY`イベントを検知して出し分ける
- *   6. 【ゲストログイン・2026-08-31】ポートフォリオ経由の訪問者が登録なしで
- *      試せるよう、Supabaseの匿名認証（signInAnonymously）を使った「ゲストとして
- *      ログイン」ボタンを用意。このコンポーネントの役割はsignInAnonymously()を呼ぶだけで、
- *      デモ用プロジェクト・サンプルタスクの自動投入はApp.tsx側で行う
- *      （App.tsx冒頭のコメント・seedGuestDemoData参照）。
- *      【不具合修正・2026-08-31】当初はこのコンポーネント内で投入まで完結させていたが、
- *      signInAnonymously()成功と同時にApp.tsx側のログイン検知（onAuthStateChange）が走り、
- *      「プロジェクト一覧の取得」と「デモデータの作成」が競合し、取得の方が先に終わって
- *      新規プロジェクトが画面に反映されない、という再現性の低い不具合があった。
- *      App.tsx側に処理を寄せることで、「初回のプロジェクト一覧取得が完了した後に
- *      デモデータを作成し、作成完了後に明示的に再取得する」という順序を保証している
- * -----------------------------------------------------------------------
+ * ログイン画面。App.tsxでisAuthenticatedがfalseのときにのみ表示される。サインイン成功後の
+ * 画面遷移はApp.tsx側のonAuthStateChange購読に任せ、このコンポーネントでは行わない。
+ * パスワード再設定リクエスト（メール送信）もここが担当し、メール内リンク後の「新しい
+ * パスワードを入力する」画面は別コンポーネント（ResetPassword.tsx）が担当する。
  */
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
@@ -71,28 +44,25 @@ export const Login: React.FC = () => {
       if (error) {
         setErrorMessage(translateAuthError(error.message));
       } else {
-        setSignupEmailSent(true); // 「確認メールを送信しました」画面へ切り替える
+        setSignupEmailSent(true);
       }
     } else {
-      // mode === 'resetRequest'：パスワード再設定メールの送信リクエスト。
-      // redirectToはこのアプリ自身のURL（開発中はlocalhost、本番デプロイ後はそのドメイン）。
-      // ※Supabaseダッシュボード側の「Authentication → URL Configuration → Redirect URLs」に
-      //   このURLを許可リストとして登録しておく必要がある（未登録だとメールのリンクが弾かれる）
+      // redirectToはこのアプリ自身のURL。Supabaseダッシュボードの「Redirect URLs」に許可登録
+      // されていないと、メール内リンクが弾かれる
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: window.location.origin,
       });
       if (error) {
         setErrorMessage(translateAuthError(error.message));
       } else {
-        setResetEmailSent(true); // 「再設定メールを送信しました」画面へ切り替える
+        setResetEmailSent(true);
       }
     }
     setIsSubmitting(false);
   };
 
-  // 【ゲストログイン・2026-08-31】登録・パスワード不要でその場で試せる、匿名ログイン用ハンドラ。
-  // 成功後の画面遷移・デモデータの自動投入は、いずれもApp.tsx側のonAuthStateChangeに任せる
-  // （ファイル冒頭のコメント参照。以前はここでデモデータ作成まで行っていたが、競合を避けるため移動した）
+  // 匿名ログイン用ハンドラ。成功後の画面遷移・デモデータの自動投入はApp.tsx側の
+  // onAuthStateChangeに任せる（デモデータ作成をここで行うと取得処理と競合するため）
   const handleGuestLogin = async () => {
     setErrorMessage(null);
     setIsGuestSubmitting(true);
@@ -129,7 +99,6 @@ export const Login: React.FC = () => {
     setPassword('');
   };
 
-  // 新規登録直後：確認メール送信済みの案内画面
   if (signupEmailSent) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-zinc-950 px-4">
@@ -154,7 +123,6 @@ export const Login: React.FC = () => {
     );
   }
 
-  // パスワード再設定メール送信直後の案内画面
   if (resetEmailSent) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-zinc-950 px-4">
@@ -215,8 +183,7 @@ export const Login: React.FC = () => {
           </div>
         )}
 
-        {/* 【ゲストログイン・2026-08-31】登録・パスワード不要でその場で試せる案内。
-            ポートフォリオ経由の訪問者向けの導線のため、パスワード再設定画面では表示しない */}
+        {/* ポートフォリオ経由の訪問者向けの導線のため、パスワード再設定画面では表示しない */}
         {mode !== 'resetRequest' && (
           <div className="mb-5">
             <button

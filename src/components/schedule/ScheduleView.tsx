@@ -1,29 +1,9 @@
 /**
  * src/components/schedule/ScheduleView.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   「スケジュール」ビュー本体。月間カレンダー形式でタスクの期日を
- *   表示する。日本の祝日を外部API（holidays-jp）から取得し、
- *   カレンダー上にハイライト表示する。
- *
- * 【主な処理】
- *   1. 表示中の年月から、カレンダーのマス目（日曜始まり、前後の月の
- *      余白日を含む）を生成する
- *   2. 祝日API（https://holidays-jp.github.io/api/v1/date.json）から
- *      祝日一覧を初回マウント時に1回だけ取得し、日付ごとに名前を紐付ける
- *      （取得に失敗しても、祝日ハイライトなしでカレンダー自体は表示を続ける）
- *   3. tasksを共通フィルター（filterTasks）で担当者・カテゴリ・優先度を絞り込み、
- *      期日（endDate）ごとにグルーピングして、該当する日のマスに表示する
- *   4. 実際に使える横幅により見た目を出し分ける（マス目データ自体は共通）：
- *      横幅が狭いときは7列グリッドだと1マスが狭すぎるため、日付を
- *      縦1列に並べる「リスト表示」にする（前後月の余白日は非表示にし、
- *      当月分の日付だけを見せる）。十分な横幅があるときは従来通り7列の
- *      月間グリッド表示にする。この判定は`@min-[640px]:`というコンテナクエリ
- *      （App.tsxの<main>に付けた`@container`基準）で行っており、ビューポート幅
- *      ではなく「実際にこの画面に残っている横幅」で判定する。サイドバーの
- *      開閉で実際の横幅は変わるため、ビューポート幅（旧: sm:）だけで判定すると
- *      タブレット幅でサイドバーを開いたときにカレンダーが崩れる不具合があった
- * -----------------------------------------------------------------------
+ * 「スケジュール」ビュー本体。月間カレンダー形式でタスクの期日を表示し、日本の祝日を
+ * 外部API（holidays-jp）から取得してハイライトする。横幅が狭いときはコンテナクエリ
+ * （@min-[640px]:。App.tsxの<main>の@container基準）で縦1列のリスト表示に切り替える
+ * （サイドバー開閉で実際の残り幅がビューポート幅と乖離するため）。
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import type { Task } from '../../types/task';
@@ -41,7 +21,7 @@ interface ScheduleViewProps {
 // 祝日API（holidays-jp）のレスポンス形式：{ "2026-01-01": "元日", ... }
 type HolidayMap = Record<string, string>;
 
-// 日付をYYYY-MM-DD文字列に変換する（他コンポーネントと表記を揃えるための小さなヘルパー）
+// 他コンポーネントと表記を揃えるためのYYYY-MM-DD変換ヘルパー
 const toDateStr = (d: Date): string => {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -58,7 +38,6 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ tasks, filterUser, f
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
 
-  // 祝日データと、取得状態（loading/ok/error）
   const [holidays, setHolidays] = useState<HolidayMap>({});
   const [holidayStatus, setHolidayStatus] = useState<'loading' | 'ok' | 'error'>('loading');
 
@@ -77,7 +56,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ tasks, filterUser, f
         }
       })
       .catch(() => {
-        // 祝日が取れなくてもカレンダー自体の表示は止めない（機能を止めないためのフォールバック）
+        // 祝日が取れなくてもカレンダー自体の表示は止めない
         if (!cancelled) setHolidayStatus('error');
       });
     return () => {
@@ -126,7 +105,6 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ tasks, filterUser, f
   // 他コンポーネント（TaskCard.tsx等）と判定基準を揃える
   const todayStr = getTodayJstDateString();
 
-  // 期日（endDate）ごとにタスクをグルーピング
   const tasksByDate = useMemo(() => {
     const map: Record<string, Task[]> = {};
     displayTasks.forEach((task) => {
@@ -146,7 +124,6 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ tasks, filterUser, f
 
   return (
     <div className="bg-card border border-border-card rounded-xl p-3 @min-[640px]:p-5 md:p-6 shadow-xs">
-      {/* ヘッダー：表示中の年月＋前月/翌月/今日ボタン */}
       <div className="flex items-center justify-between mb-5">
         <h3 className="text-sm font-black text-text-main tracking-wide">
           {year}年 {month + 1}月
@@ -179,15 +156,13 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ tasks, filterUser, f
         </div>
       </div>
 
-      {/* 祝日データの取得に失敗した場合の注記（機能自体は止めない） */}
       {holidayStatus === 'error' && (
         <p className="text-[10px] text-text-sub mb-3">
           ※祝日データの取得に失敗したため、祝日のハイライトなしで表示しています。
         </p>
       )}
 
-      {/* 曜日ヘッダー：横幅が狭い（縦1列リスト表示）では列見出しの意味を持たないため非表示にし、
-          各日付の行内に曜日を直接表示する（下記参照） */}
+      {/* 横幅が狭い（縦1列リスト）では列見出しの意味がないため非表示にし、各日付の行内に曜日を直接表示する */}
       <div className="hidden @min-[640px]:grid grid-cols-7 text-center text-[10px] font-bold text-text-sub uppercase tracking-wider mb-2">
         {WEEKDAY_LABELS.map((w, i) => (
           <div key={w} className={i === 0 ? 'text-rose-400' : i === 6 ? 'text-sky-400' : ''}>
@@ -196,7 +171,6 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ tasks, filterUser, f
         ))}
       </div>
 
-      {/* カレンダー本体：横幅が狭いときは縦1列のリスト表示、十分あれば従来通り7列グリッド表示 */}
       <div className="grid grid-cols-1 @min-[640px]:grid-cols-7 gap-1.5">
         {cells.map((cell) => {
           const holidayName = holidays[cell.dateStr];
@@ -221,7 +195,6 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ tasks, filterUser, f
               <div className="flex items-center justify-between gap-1">
                 <span className={`text-xs @min-[640px]:text-[10px] font-bold font-mono ${holidayName ? 'text-rose-400' : 'text-text-sub'}`}>
                   {cell.date.getDate()}
-                  {/* 曜日：スマホの縦1列リストでは列見出しが無いため、日付の横に直接添える */}
                   <span className={`@min-[640px]:hidden ml-1 font-sans font-bold ${weekday === '日' ? 'text-rose-400' : weekday === '土' ? 'text-sky-400' : 'text-text-sub'}`}>
                     ({weekday})
                   </span>

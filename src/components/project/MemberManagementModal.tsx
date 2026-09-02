@@ -1,20 +1,8 @@
 /**
  * src/components/project/MemberManagementModal.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   プロジェクトのメンバー管理モーダル（オーナーのみが開ける導線。
- *   ProjectManagementView.tsx側でオーナーのみに表示済み。要件定義書§2.4）。
- *   現在のメンバー一覧の表示・メンバーの追加／削除・オーナー譲渡を行う。
- *
- * 【主な処理】
- *   1. メンバー一覧：登録済みメンバーをロール（オーナー／メンバー）とともに表示する。
- *      オーナー行以外の各メンバーには「オーナーにする」「削除」ボタンを表示する
- *   2. メンバーの追加：まだ参加していない登録ユーザー（profiles）をクリックで
- *      即追加する（TaskForm.tsxの担当者選択と同じピル型ボタンのスタイルを踏襲）
- *   3. 確認ダイアログ（削除・オーナー譲渡とも元に戻しづらい操作のため）は、
- *      プロジェクト削除（handleDeleteProject）と同じ方針でApp.tsx側のハンドラーに
- *      持たせる（このコンポーネントはPropsで受け取った内容を表示するだけ。規約①）
- * -----------------------------------------------------------------------
+ * プロジェクトのメンバー管理モーダル（オーナーのみが開ける）。現在のメンバー一覧の
+ * 表示・追加／削除・オーナー譲渡を行う。確認ダイアログを含む実処理はApp.tsx側の
+ * ハンドラーに委譲し、このコンポーネントはPropsで受け取った内容を表示するだけ（規約①）。
  */
 import type { Project, User } from '../../types/task';
 
@@ -56,14 +44,12 @@ export default function MemberManagementModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
       <div className="w-full max-w-lg bg-card border border-border-card rounded-2xl p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
 
-        {/* ヘッダー */}
         <div className="pb-2 border-b border-border-card/40">
           <h3 className="font-extrabold text-xs tracking-wider text-text-main">
             メンバー管理：{project.name}
           </h3>
         </div>
 
-        {/* 現在のメンバー一覧 */}
         <div>
           <label className="block text-[10px] font-black text-text-sub uppercase mb-1.5">
             現在のメンバー（{members.length}人）
@@ -122,7 +108,6 @@ export default function MemberManagementModal({
           </div>
         </div>
 
-        {/* メンバー追加：まだ参加していない登録ユーザーをクリックで即追加する */}
         <div>
           <label className="block text-[10px] font-black text-text-sub uppercase mb-1.5">
             メンバーを追加
@@ -144,7 +129,6 @@ export default function MemberManagementModal({
           )}
         </div>
 
-        {/* 下部アクションボタン */}
         <div className="flex justify-end pt-2 border-t border-border-card/30">
           <button
             type="button"

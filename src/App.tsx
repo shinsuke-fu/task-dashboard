@@ -1,75 +1,10 @@
 /**
  * src/App.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   アプリ全体を束ねるルートコンポーネント。tasks・ユーザー一覧・認証状態・
- *   テーマ・フィルター条件・選択中プロジェクトなど「すべての状態」をここで
- *   一元管理するSingle Source of Truth（規約①）。子・孫コンポーネントは状態を
- *   直接書き換えず、Props経由で渡された関数（onUpdateStatus 等）を
- *   呼び出すことでのみ状態変更をリクエストする。
- *
- * 【主な処理】
- *   1. 認証状態はSupabase Authのセッション（onAuthStateChange）と連動する。
- *      tasks（タスク一覧）・users（担当者一覧）・projects（参加プロジェクト一覧）は
- *      SupabaseのDBから取得し、テーマ・通知ON/OFF設定・選択中プロジェクトなど
- *      「個人の見た目の好み・選択状態」だけはこれまで通りブラウザのlocalStorageに
- *      保存する（複数人で共有する必要が無いデータのため、あえてSupabase化していない）
- *   2. currentView（文字列）の切り替えだけで画面を出し分ける
- *      「一面集約型SPA」のルーティングを実現（外部ルーターは未使用・規約②）
- *   3. タスクの作成・編集・削除・ステータス変更・承認/差し戻しなど、
- *      タスク操作系ハンドラーをすべてここに集約し、子コンポーネントへ配布。
- *      いずれもSupabaseへの書き込み後に`refreshTasks()`で最新状態を
- *      再取得し直す、シンプルな「毎回サーバーから読み直す」方式にしている
- *      （楽観的更新はせず、まずは確実さを優先）
- *   4. グローバルヘッダー／担当者・カテゴリ・優先度のフィルターバー／サイドバー
- *      など、画面全体のレイアウトを組み立てる（フィルターは画面ごとに分けず、
- *      全画面共通の状態として扱う方針）。ヘッダーには選択中プロジェクト名の
- *      バッジも常時表示する（ユーザー要望：2026-08-29。sm未満の画面幅では省略）
- *   5. tasksから「自分向けの通知」（遅延・当日締切・差し戻し・承認待ち）を
- *      都度算出し、ヘッダーの通知ベルのドロップダウンに表示する
- *   6. 「スケジュール」タブでは月間カレンダー形式のScheduleViewを表示する
- *   7. 「設定」タブ（currentView==='settings'）では、テーマ／通知ON-OFF／
- *      サンプルデータのリセットを行うSettingsViewを表示する。ヘッダーの
- *      アバター横と、サイドバー下部のログアウト横、2箇所の⚙️ボタンから、
- *      どちらもこの同じ設定ページへ遷移する
- *   8. 【プロジェクト管理機能】currentProjectId（選択中プロジェクト）を1つ保持し、
- *      ダッシュボード／タスクボード／スケジュールの3画面はこのプロジェクトの
- *      タスクだけをSupabaseから取得して表示する（`.eq('project_id', ...)`で絞り込み。
- *      プロジェクト管理機能_要件定義書.md §1・§2.1・§4）。未選択の間はこの3画面に
- *      「プロジェクトを選択してください」という案内を出す。「プロジェクト管理」タブ
- *      （currentView==='project'）では、参加プロジェクトのカード一覧・新規作成・編集・削除
- *      （ProjectManagementView・ProjectFormModal）を提供する。検索＋ステータスタブによる
- *      絞り込みにも対応する（§2.2〜2.3）。オーナーはカードから「メンバー管理」を開き、
- *      メンバーの追加・削除・オーナー譲渡ができる（MemberManagementModal。§2.4・§6.1）。
- *      オーナー以外のメンバーは「抜ける」でプロジェクトから脱退できる
- *   9. 【ステップ6】TaskForm.tsxの編集画面には「プロジェクト」欄があり、自分が参加している
- *      他のプロジェクトへタスクを移動できる（§2.5）。担当者・確認者の選択候補は、常に
- *      選択中プロジェクトのメンバーに絞り込まれ、移動先のメンバーでなくなる担当者・確認者は
- *      自動的に選択から外れる。この絞り込みに使うprojectMembersは、ログイン時点で
- *      取得しておく（「プロジェクト管理」タブを開いていなくても使えるようにするため）
- *  10. 【ステップ7】退会（設定＞データ）時、自分がオーナーかつ他にもメンバーがいる
- *      プロジェクトが1件以上残っていると、通常の退会ボタンの代わりにオーナー引き継ぎ
- *      セクション（OwnershipHandoverSection.tsx）を表示し、先にすべて新オーナーへ
- *      譲渡させる（§6.2）。自分1人だけがオーナーのプロジェクトは、退会実行時に
- *      delete_own_account()側でタスクごとまとめて削除される
- *  11. 【ステップ8】通知ベルは選択中プロジェクトに絞らず、自分が参加している全プロジェクトを
- *      横断して通知する（§4）。判定専用のnotificationTasks（tasksとは別state）をログイン時・
- *      20秒ポーリング・各種タスク操作の直後に取得し直す。通知アイテムをクリックした際、
- *      そのタスクが選択中でない別プロジェクトのものであれば、currentProjectIdを自動的に
- *      そのプロジェクトへ切り替えてから編集モーダルを開く（handleNotificationClick）。
- *      【追加要望・2026-08-29】通知が全プロジェクト横断になり見にくいという指摘を受け、
- *      ヘッダーの通知ベルは直近6件＋プロジェクト名タグのプレビューに徹し、全件は
- *      「すべて見る→」から通知専用画面（NotificationsView.tsx・currentView='notifications'。
- *      サイドバーには項目を増やさず、設定ページと同様ベルからのみ入る）で確認する構成にした
- *  12. 【ゲストログイン・2026-08-31】ポートフォリオ経由の訪問者向けに、登録不要で試せる
- *      「ゲストとしてログイン」ボタン（src/pages/Login.tsx）を用意した。Supabaseの匿名認証
- *      （signInAnonymously）でログインし、ログイン直後の初回プロジェクト一覧取得
- *      （projectsLoaded）が完了してプロジェクトが0件だと確定した時点で、デモ用プロジェクト・
- *      サンプルタスクを自動投入する（seedGuestDemoData。Login.tsx側ではなくここで行う理由は
- *      同関数のコメント参照：取得と作成の競合を避けるため）。ログアウト時（handleLogout）は、
- *      匿名アカウントなら既存のdelete_own_account()を呼んでからサインアウトすることで、
- *      デモデータ・匿名アカウント自体がDBに溜まり続けないようにしている
- * -----------------------------------------------------------------------
+ * アプリ全体を束ねるルートコンポーネント。tasks・users・認証状態・テーマ・選択中
+ * プロジェクトなど全状態をここで一元管理する（Single Source of Truth・規約①）。
+ * 子孫コンポーネントは状態を直接書き換えず、Props経由の関数呼び出しでのみ変更を
+ * リクエストする。画面切り替えはcurrentView文字列のみで行う一面集約型SPA
+ * （規約②）。機能一覧はdocs/基本設計書.md§6参照。
  */
 import { useState, useEffect, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
@@ -92,7 +27,7 @@ import { NotificationsView } from './components/notifications/NotificationsView'
 import { getTodayJstDateString } from './utils/date';
 
 // 通知ベルに表示するアラートアイテムの型（NotificationItem）は、通知専用画面
-// （NotificationsView.tsx）とも共有するため、types/task.tsに集約している（ステップ8）
+// （NotificationsView.tsx）とも共有するため、types/task.tsに集約している
 
 // 通知ベルの4種類すべてを初期状態でON（従来通りの挙動）にしたデフォルト設定
 const defaultNotificationSettings: Record<NotificationType, boolean> = {
@@ -157,31 +92,24 @@ const mapRowToTask = (row: SupabaseTaskRow): Task => ({
   projectId: row.project_id,
 });
 
-// 【ポーリング改善・2026-08-30】20秒ごとのポーリングで内容が変わっていないのに
-// setTasks/setNotificationTasksを呼んでしまうと、配列・オブジェクトの参照が毎回
-// 新しくなるため無駄な再レンダリングが起きる。内容が完全に同じ場合はstate更新自体を
-// スキップするための簡易比較（この規模のアプリではJSON文字列比較で十分）
+// 20秒ごとのポーリングで内容が変わっていないのにsetTasks/setNotificationTasksを
+// 呼んでしまうと、配列・オブジェクトの参照が毎回新しくなるため無駄な再レンダリングが
+// 起きる。内容が完全に同じ場合はstate更新自体をスキップするための簡易比較
+// （この規模のアプリではJSON文字列比較で十分）
 const tasksEqual = (a: Task[], b: Task[]) => JSON.stringify(a) === JSON.stringify(b);
 
-// 【ゲストログイン・2026-08-31】JST基準の「今日」からの相対日数でYYYY-MM-DD文字列を作る
-// （ポートフォリオを見るタイミングに関わらず、常に「今日から見て自然な期日」のサンプルに
-// なるようにするため。utils/date.tsのgetTodayJstDateStringと同じJST基準で計算する）
+// JST基準の「今日」からの相対日数でYYYY-MM-DD文字列を作る（ポートフォリオを見る
+// タイミングに関わらず、常に「今日から見て自然な期日」のサンプルになるようにするため。
+// utils/date.tsのgetTodayJstDateStringと同じJST基準で計算する）
 const dateFromToday = (offsetDays: number): string => {
   const [year, month, day] = getTodayJstDateString().split('-').map(Number);
   const d = new Date(Date.UTC(year, month - 1, day + offsetDays));
   return d.toISOString().slice(0, 10);
 };
 
-// 【ゲストログイン・2026-08-31】ゲストとしてログインした直後に、デモ用プロジェクトと
-// サンプルタスクを一式投入する。カンバンの4ステータス・優先度・カテゴリをばらけさせ、
-// 1件はあえて期日超過にして「遅延中」の強調表示（規約.md：上書き禁止の仕様）も
-// 見てもらえるようにしている。成功したら新規プロジェクトのIDを返す（呼び出し側で
-// currentProjectIdに設定してもらうため）。
-// 【不具合修正・2026-08-31】当初はsrc/pages/Login.tsx側で（signInAnonymously()の直後に）
-// 呼んでいたが、それだとApp.tsx側のログイン検知（onAuthStateChange）による
-// 「プロジェクト一覧の取得」と競合し、取得の方が先に終わって新規プロジェクトが
-// 画面に反映されないことがあった。App.tsx側（初回のプロジェクト一覧取得が完了した後）から
-// 呼ぶことで、この競合を避けている（呼び出し箇所はuseEffect参照）
+// ゲストログイン直後に、デモ用プロジェクトとサンプルタスクを一式投入する（1件はあえて
+// 期日超過にし「遅延中」表示も確認できるようにしている）。Login.tsxではなくApp.tsx側
+// から呼ぶ理由はログイン検知との競合を避けるため（経緯：学習ノート.md8.5）
 const seedGuestDemoData = async (guestUserId: string): Promise<string | null> => {
   const { data: project, error: projectError } = await supabase
     .from('projects')
@@ -299,11 +227,9 @@ export default function App() {
       setSession(data.session);
       setAuthLoading(false);
     });
-    // ログイン・ログアウト・トークン更新などのセッション変化を購読し続ける。
-    // パスワード再設定メールのリンクをクリックすると、Supabaseが自動的にURL内の
-    // トークンを検知して一時セッションを確立し、ここに'PASSWORD_RECOVERY'イベントが
-    // 届く（このタイミングではsessionはすでに存在するが、まだ新しいパスワードは
-    // 設定されていない状態）
+    // セッション変化を購読し続ける。パスワード再設定リンクを踏むと、Supabaseが自動的に
+    // 一時セッションを確立し'PASSWORD_RECOVERY'イベントが届く
+    // （このタイミングでは新しいパスワードはまだ設定されていない）
     const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
       if (event === 'PASSWORD_RECOVERY') {
@@ -327,20 +253,20 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState<boolean>(false);
 
-  // 【ステップ8：通知ベルの全プロジェクト横断対応】通知ベルの判定専用に、選択中プロジェクトに
-  // 絞らず「自分が参加している全プロジェクト」のタスクを保持する（要件定義書§4）。
-  // tasks（画面表示用。currentProjectIdで絞り込み）とは別に持つ理由は、通知ベルだけは
-  // 選択中プロジェクトに関係なく全プロジェクト横断で気づけるようにするため
+  // 通知ベルの判定専用に、選択中プロジェクトに絞らず「自分が参加している全プロジェクト」の
+  // タスクを保持する（docs/要件定義書.md§6）。tasks（画面表示用。currentProjectIdで
+  // 絞り込み）とは別に持つ理由は、通知ベルだけは選択中プロジェクトに関係なく
+  // 全プロジェクト横断で気づけるようにするため
   const [notificationTasks, setNotificationTasks] = useState<Task[]>([]);
 
   // 参加中プロジェクトの一覧（Supabaseの`projects`テーブルから取得。RLSにより自分が
-  // メンバーのプロジェクトのみが返る。プロジェクト管理機能_要件定義書.md §3.1）
+  // メンバーのプロジェクトのみが返る。docs/要件定義書_プロジェクト管理機能.md §3.1）
   const [projects, setProjects] = useState<Project[]>([]);
 
-  // 【ゲストログイン・2026-08-31】ログイン直後の「初回のプロジェクト一覧取得」が
-  // 完了したかどうかのフラグ。ゲスト（匿名）ユーザーのデモデータ自動投入は、
-  // このフラグがtrueになってから（＝projectsが本当に0件だと確定してから）行う
-  // ことで、取得とデモデータ作成の競合を避ける（refreshProjects・useEffect参照）
+  // ログイン直後の「初回のプロジェクト一覧取得」が完了したかどうかのフラグ。
+  // ゲスト（匿名）ユーザーのデモデータ自動投入は、このフラグがtrueになってから
+  // （＝projectsが本当に0件だと確定してから）行うことで、取得とデモデータ作成の
+  // 競合を避ける（refreshProjects・useEffect参照）
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const guestSeedStartedRef = useRef(false);
 
@@ -355,11 +281,10 @@ export default function App() {
   // トグルと同様、Sidebar.tsx側には状態を持たせずApp.tsxで一元管理する（規約①・ui-theming.md）
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState<boolean>(false);
 
-  // 【ステップ4：プロジェクト管理タブ】各プロジェクトのメンバー一覧（user_id・role）と
-  // タスク件数・完了数。カードの「メンバー数」「進捗％」表示に使う。当初はプロジェクト管理
-  // タブを開いたときだけ取得する設計だったが、【ステップ6】でTaskForm.tsxの担当者・確認者
-  // 候補の絞り込みにも使うようになったため、ログイン時点（isAuthenticated）でも
-  // refreshProjectSummaries()を呼ぶよう変更した（下記useEffect参照）
+  // 各プロジェクトのメンバー一覧（user_id・role）とタスク件数・完了数。カードの
+  // 「メンバー数」「進捗％」表示に使うほか、TaskForm.tsxの担当者・確認者候補の絞り込みにも
+  // 使うため、「プロジェクト管理」タブを開いていなくてもログイン時点で取得しておく
+  // （下記useEffect参照）
   const [projectMembers, setProjectMembers] = useState<Record<string, { userId: string; role: string }[]>>({});
   const [projectTaskCounts, setProjectTaskCounts] = useState<Record<string, { total: number; done: number }>>({});
 
@@ -367,21 +292,20 @@ export default function App() {
   const [isProjectFormOpen, setIsProjectFormOpen] = useState<boolean>(false);
   const [editingProject, setEditingProject] = useState<Project | undefined>(undefined);
 
-  // 【ステップ5：メンバー管理・オーナー譲渡UI】メンバー管理モーダルの開閉状態。
-  // 対象プロジェクトはIDだけ保持し、実体はprojectsから都度参照する（他の編集操作と同様、
-  // 削除等でprojectsが更新されても参照先がずれない）
+  // メンバー管理モーダルの開閉状態。対象プロジェクトはIDだけ保持し、実体はprojectsから
+  // 都度参照する（他の編集操作と同様、削除等でprojectsが更新されても参照先がずれない）
   const [memberModalProjectId, setMemberModalProjectId] = useState<string | null>(null);
 
-  // プロジェクト管理タブの検索・ステータスタブによる絞り込み（§2.2。ユーザー要望：
-  // 2026-08-29で「アーカイブ済みを表示」チェックボックスから置き換え）。他のフィルター系
-  // state（filterUser等）と同様、画面遷移時にリセットされる一時的な表示設定として扱い、
-  // localStorageには保存せず都度初期値から始める
+  // プロジェクト管理タブの検索・ステータスタブによる絞り込み（docs/要件定義書_
+  // プロジェクト管理機能.md§2.2）。他のフィルター系state（filterUser等）と同様、
+  // 画面遷移時にリセットされる一時的な表示設定として扱い、localStorageには保存せず
+  // 都度初期値から始める
   const [projectStatusFilter, setProjectStatusFilter] = useState<'all' | ProjectStatus>('all');
   const [projectSearchQuery, setProjectSearchQuery] = useState<string>('');
 
   // 配色テーマ（12種類）。これは複数人で共有する必要のない「個人の見た目の好み」なので、
   // 引き続きこのブラウザのlocalStorageにのみ保存する（Supabase化はしていない）。
-  // デフォルトはGRAPHITE（2026-08-25変更。src/index.cssの`:root`側もGRAPHITEに合わせてある）
+  // デフォルトはGRAPHITE（src/index.cssの`:root`側もGRAPHITEに合わせてある）
   const [theme, setTheme] = useState<AppTheme>(() => {
     return (localStorage.getItem('dashboard_theme') as AppTheme) || 'graphite-dark';
   });
@@ -406,7 +330,7 @@ export default function App() {
   });
 
   // グローバル操作フィルターバー（担当者・カテゴリ・優先度）の選択状態。
-  // 画面（タブ）ごとには分けず、全画面共通のフィルターとして扱う方針（ユーザー確認済み）
+  // 画面（タブ）ごとには分けず、全画面共通のフィルターとして扱う方針
   const [filterUser, setFilterUser] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterPriority, setFilterPriority] = useState<string>('all');
@@ -416,15 +340,10 @@ export default function App() {
 
   // ---- Supabaseとのデータ同期 ----
 
-  // Supabaseからtasksを担当者・サブタスクごと結合して取得し直す共通関数。
-  // タスクの作成・更新・削除のたびにこれを呼び、「サーバーの最新状態を毎回読み直す」
-  // シンプルな方式にしている（楽観的更新はせず、まずは確実さを優先する設計判断）。
-  // currentProjectIdで絞り込み、未選択（null）の間は取得自体を行わない
-  // （プロジェクト管理機能_要件定義書.md §1・§4。tasks.project_idはNOT NULL制約のため、
-  // 未選択のままクエリしても意味のある結果にならない）
-  // 【ポーリング改善・2026-08-30】opts.silentは20秒ポーリングからの呼び出し時にtrueを渡す。
-  // 通常のsetTasksLoading表示（tasks.length === 0の間だけ出るローディング表示）は初回読み込みや
-  // プロジェクト切り替え時にのみ必要で、バックグラウンドのポーリングでは不要なstate更新のため
+  // tasksを担当者・サブタスクごと結合して取得し直す共通関数。毎回サーバーから読み直す
+  // 方式（楽観的更新はしない）。currentProjectId未選択の間は取得しない
+  // （project_idがNOT NULL制約のため。docs/要件定義書_プロジェクト管理機能.md§1・§4）。
+  // opts.silentはポーリングからの呼び出し時に使い、ローディング表示を出さないようにする
   const refreshTasks = async (opts?: { silent?: boolean }) => {
     if (!currentProjectId) {
       setTasks([]);
@@ -435,9 +354,8 @@ export default function App() {
       .from('tasks')
       .select('*, task_assignees(user_id), task_subtasks(id, title, done)')
       .eq('project_id', currentProjectId)
-      // 【ポーリング改善・2026-08-30】created_atが同一の行が複数ある場合、この二次キーが
-      // ないとPostgres側で返却順が確定せず、ポーリングのたびにカードの並びが入れ替わって
-      // 見える（画面がかくつく・動く原因の一つ）。idで確定させることで並び順を安定させる
+      // created_atだけだと返却順が不安定になり、ポーリングのたびに並びが入れ替わって
+      // 見えるため、idを二次キーにして安定させる
       .order('created_at', { ascending: false })
       .order('id', { ascending: true });
     if (!opts?.silent) setTasksLoading(false);
@@ -450,15 +368,13 @@ export default function App() {
     setTasks((prev) => (tasksEqual(prev, next) ? prev : next));
   };
 
-  // 【ステップ8：通知ベルの全プロジェクト横断対応】通知ベル用に、project_idで絞り込まず
-  // 全タスクを取得し直す共通関数。RLS（is_project_member経由のtasksポリシー）により、
-  // 自分が参加しているプロジェクトのタスクだけが自動的に返るため、クライアント側での
-  // user_id/project_id絞り込みは不要（refreshProjectsと同じ考え方）
+  // 通知ベル用に、project_idで絞り込まず全タスクを取得する共通関数。RLSが自動的に
+  // 参加プロジェクト分だけを返すため、クライアント側の絞り込みは不要
   const refreshNotificationTasks = async () => {
     const { data, error } = await supabase
       .from('tasks')
       .select('*, task_assignees(user_id), task_subtasks(id, title, done)')
-      // 【ポーリング改善・2026-08-30】refreshTasksと同様、二次キーで並び順を確定させる
+      // refreshTasksと同様、二次キーで並び順を確定させる
       .order('created_at', { ascending: false })
       .order('id', { ascending: true });
 
@@ -474,13 +390,13 @@ export default function App() {
   // （projects_select_member。supabase-migration-projects.sql参照）が自分がメンバーの
   // プロジェクトだけを返すため、クライアント側でのuser_id絞り込みは不要
   //
-  // 【ゲストログイン・2026-08-31】末尾でprojectsLoadedをtrueにする（成功・失敗どちらでも）。
-  // これにより「ログイン直後の初回取得が完了した」ことを他のuseEffectから判定できる
+  // 末尾でprojectsLoadedをtrueにする（成功・失敗どちらでも）。これにより「ログイン直後の
+  // 初回取得が完了した」ことを他のuseEffectから判定できる
   const refreshProjects = async () => {
     const { data, error } = await supabase
       .from('projects')
       .select('*')
-      // 【ポーリング改善・2026-08-30】refreshTasksと同様、二次キーで並び順を確定させる
+      // refreshTasksと同様、二次キーで並び順を確定させる
       .order('created_at', { ascending: true })
       .order('id', { ascending: true });
 
@@ -493,10 +409,8 @@ export default function App() {
     setProjectsLoaded(true);
   };
 
-  // 【ステップ4：プロジェクト管理タブ】カード表示用の「メンバー数」「タスク進捗」を取得する。
-  // project_members・tasksともにRLS（is_project_member）が自分の参加プロジェクト分だけを
-  // 返すため、project_idでの絞り込みは不要（refreshProjects/refreshTasksと同じ考え方）。
-  // タブを開いたときだけ呼び出す重めの集計クエリなので、ログイン直後の全画面ロードには含めない
+  // カード表示用の「メンバー数」「タスク進捗」を取得する重めの集計クエリ。RLSにより
+  // 絞り込みは不要。タブを開いたときだけ呼び出し、ログイン直後には含めない
   const refreshProjectSummaries = async () => {
     const [membersResult, taskStatsResult] = await Promise.all([
       supabase.from('project_members').select('project_id, user_id, role'),
@@ -533,8 +447,8 @@ export default function App() {
       setUsers([]);
       setProjects([]);
       setNotificationTasks([]);
-      // 【ゲストログイン・2026-08-31】ログアウトのたびにリセットし、次回ログイン時に
-      // 「初回のプロジェクト一覧取得」を正しく待てるようにする（guestSeedStartedRefも同様）
+      // ログアウトのたびにリセットし、次回ログイン時に「初回のプロジェクト一覧取得」を
+      // 正しく待てるようにする（guestSeedStartedRefも同様）
       setProjectsLoaded(false);
       guestSeedStartedRef.current = false;
       return;
@@ -554,13 +468,11 @@ export default function App() {
       });
 
     refreshProjects();
-    // 【ステップ6】担当者・確認者の候補をプロジェクトのメンバーに絞り込むため（TaskForm.tsx）、
+    // 担当者・確認者の候補をプロジェクトのメンバーに絞り込むため（TaskForm.tsx）、
     // 「プロジェクト管理」タブを開いていなくてもログイン時点でprojectMembersを取得しておく
-    // （元々は§9-4でプロジェクト管理タブを開いたときだけ取得する設計だったが、ダッシュボード等
-    // からタスク編集を開いた際にも必要になったため、ログイン時にも取得するよう変更）
     refreshProjectSummaries();
-    // 【ステップ8】通知ベルは選択中プロジェクトに関係なく全プロジェクト横断で必要なため、
-    // ログイン時点で取得しておく（currentProjectIdが未選択・未確定の間も通知は出したいため）
+    // 通知ベルは選択中プロジェクトに関係なく全プロジェクト横断で必要なため、ログイン時点で
+    // 取得しておく（currentProjectIdが未選択・未確定の間も通知は出したいため）
     refreshNotificationTasks();
 
     return () => {
@@ -568,13 +480,9 @@ export default function App() {
     };
   }, [isAuthenticated]);
 
-  // 【ゲストログイン・2026-08-31】ゲスト（匿名）ユーザーが、ログイン直後のプロジェクト一覧取得
-  // （projectsLoaded）が完了し、プロジェクトが本当に0件だと確定した時点で、デモ用の
-  // プロジェクト・サンプルタスクを自動投入する。guestSeedStartedRefで二重実行を防ぐ
-  // （なぜLogin.tsx側ではなくここで行うかはseedGuestDemoData定義部のコメント参照。
-  // 投入完了後、プロジェクト一覧・集計・通知を再取得し、新規プロジェクトを選択状態にする。
-  // タスク一覧（tasks）自体はcurrentProjectIdの変化を検知する下のuseEffectが自動的に
-  // 取得し直すため、ここで明示的に呼ぶ必要はない）
+  // ゲスト（匿名）ユーザーがログイン直後のプロジェクト一覧取得完了後、0件だと確定した
+  // 時点でデモデータを自動投入する（guestSeedStartedRefで二重実行を防ぐ。理由は
+  // seedGuestDemoData参照）。tasksは下のuseEffectが自動で取得し直すため明示呼び出し不要
   useEffect(() => {
     if (!isAuthenticated || !projectsLoaded) return;
     if (!session?.user.is_anonymous) return;
@@ -603,9 +511,9 @@ export default function App() {
     refreshTasks();
   }, [isAuthenticated, currentProjectId]);
 
-  // 【ステップ4：プロジェクト管理タブ】タブを開いたとき（currentView==='project'）だけ
-  // メンバー数・タスク進捗の集計を取得し直す（サイドバーのアコーディオンでの切り替えのみを
-  // 行っている間はこのクエリを発生させない）
+  // タブを開いたとき（currentView==='project'）だけメンバー数・タスク進捗の集計を
+  // 取得し直す（サイドバーのアコーディオンでの切り替えのみを行っている間はこのクエリを
+  // 発生させない）
   useEffect(() => {
     if (!isAuthenticated || currentView !== 'project') return;
     refreshProjectSummaries();
@@ -629,35 +537,15 @@ export default function App() {
     }
   }, [currentProjectId]);
 
-  // 他ユーザーの操作（例：別アカウントが承認申請してreview状態にした等）にリアルタイムに
-  // 反応する仕組み（Supabase Realtimeのsubscribe等）はまだ導入していないため、画面を開きっ
-  // ぱなしにしていると、他ユーザー側の変更は自分の手元のtasksには自動反映されない
-  // （＝確認者アカウントの通知ベルが更新されない、という形で症状が出る）。
-  // 本格的な対応（Realtime導入）は別途行う想定だが、暫定策として一定間隔でタスク一覧を
-  // ポーリングし直し、通知やカンバン表示がある程度追従するようにしている
-  //
-  // 【不具合修正・2026-08-29】依存配列が[isAuthenticated]のみだった際、setIntervalのコールバックが
-  // クロージャとしてタイマー作成時点のrefreshTasks（＝その時点のcurrentProjectId）を握ったまま
-  // 更新されず、プロジェクトを切り替えても「ログイン直後に選択されていたプロジェクト」のタスクを
-  // 取得し続けてしまう不具合があった（切り替え直後は正しく表示されるが、最大20秒以内に古い
-  // プロジェクトの内容で上書きされる、という形で発現）。currentProjectIdを依存配列に加え、
-  // プロジェクトが変わるたびにタイマーを作り直す（＝常に最新のrefreshTasksを使う）ことで解消
-  //
-  // 【ステップ8】通知ベルは全プロジェクト横断（notificationTasks）になったため、こちらも
-  // 同じタイマーで一緒に取得し直す。refreshNotificationTasks自体はcurrentProjectIdに
-  // 依存しないが、同じ間隔で回して問題ないため、既存のタイマーに相乗りさせている
-  //
-  // 【ポーリング改善・2026-08-30】ユーザーから「20秒ごとに画面がかくつく／動く」との報告。
-  // 主因は、created_at一意の二次キーがなくSupabase側の行の返却順が不安定だったこと
-  // （同着タスクの並びがポーリングのたびに入れ替わって見えていた）。refreshTasks／
-  // refreshNotificationTasks／refreshProjectsの.order()にidを二次キーとして追加し解消。
-  // 併せて、内容に変化がない場合はsetTasks等を呼ばないようにし（tasksEqual参照）、
-  // ポーリング中のsetTasksLoading表示も抑制（silentオプション）して無駄な再レンダリングを削減。
-  // 本格対応（Supabase Realtime導入）は仕様書.md／認証・DB設計書.mdにTODOとして記載済み
+  // Supabase Realtime未導入のため、他ユーザーの変更を拾う暫定策として一定間隔で
+  // ポーリングする（本格対応はTODO.md参照）。currentProjectIdを依存配列に含めるのは、
+  // クロージャが古いrefreshTasksを握ったままにならないようにするため。通知ベルは全
+  // プロジェクト横断のため同じタイマーに相乗りさせている。.order()の二次キー（id）は
+  // 返却順を安定させ、ポーリングのたびに並びが入れ替わるのを防ぐため
   useEffect(() => {
     if (!isAuthenticated) return;
     const intervalId = setInterval(() => {
-      refreshTasks({ silent: true }); // 【ポーリング改善・2026-08-30】バックグラウンド更新なのでローディング表示は出さない
+      refreshTasks({ silent: true }); // バックグラウンド更新なのでローディング表示は出さない
       refreshNotificationTasks();
     }, 20000); // 20秒間隔（頻度を上げすぎるとAPI呼び出しが増えるため、通知用途としてはこの程度で妥協）
     return () => clearInterval(intervalId);
@@ -707,36 +595,28 @@ export default function App() {
   // 自分のプロフィール（ヘッダーのアバター表示用）
   const myProfile = users.find((u) => u.id === currentUserId);
 
-  // 選択中プロジェクトの実体（ヘッダーの常時表示バッジ用。ユーザー要望：2026-08-29。
-  // 「今どのプロジェクトを見ているか常に分かるようにしたい」との理由で追加）
+  // 選択中プロジェクトの実体（ヘッダーの常時表示バッジ用。「今どのプロジェクトを
+  // 見ているか常に分かるようにしたい」という理由で表示している）
   const currentProject = projects.find((p) => p.id === currentProjectId);
 
-  // 【fix/task-assignees-subtasks-rls・2026-09-02】選択中プロジェクトのメンバーだけに
-  // 絞り込んだuser一覧。ダッシュボードの「メンバー別稼働状況」（ProgressChart.tsx）に
-  // usersをそのまま渡していたため、選択中プロジェクトに無関係な全ユーザー（ゲストの
-  // 残骸アカウント含む）まで表示されてしまっていた不具合の修正。TaskForm.tsxの
-  // assigneeCandidates（担当者候補の絞り込み）と同じ考え方
+  // 選択中プロジェクトのメンバーだけに絞り込んだuser一覧（ダッシュボードに無関係な
+  // 全ユーザーが表示されるのを防ぐ。TaskForm.tsxのassigneeCandidatesと同じ考え方）
   const currentProjectMemberIds = new Set(
     (projectMembers[currentProjectId ?? ''] ?? []).map((m) => m.userId)
   );
   const currentProjectMembers = users.filter((u) => currentProjectMemberIds.has(u.id));
 
-  // 【ステップ7：オーナー引き継ぎ】自分がオーナーで、かつ他にもメンバーがいる
-  // プロジェクト一覧（設定＞データ画面で、退会前に新オーナーへの譲渡を求める対象。
-  // 要件定義書§6.2）。projectMembersの更新のたびに再計算されるため、譲渡が完了して
-  // 対象が0件になれば、SettingsView.tsx側の分岐が自動的に通常の退会ボタンへ戻る
+  // 自分がオーナーかつ他にもメンバーがいるプロジェクト一覧（退会前に譲渡を求める対象。
+  // docs/要件定義書_プロジェクト管理機能.md§6.2）。0件になれば通常の退会ボタンへ自動的に戻る
   const projectsNeedingOwnershipHandover = projects.filter((p) => {
     const members = projectMembers[p.id] ?? [];
     const isOwner = members.some((m) => m.userId === currentUserId && m.role === 'owner');
     return isOwner && members.length > 1;
   });
 
-  // 通知ベルに表示する「自分宛て」のアラート一覧。サーバー通知ではなく、
-  // notificationTasksデータ（全プロジェクト横断。ステップ8・要件定義書§4）から毎レンダー時に
-  // 導出するシンプルな仕組み。選択中プロジェクトのtasksとは別データのため、選択中でない
-  // 別プロジェクトの承認待ち等にも気づける。
-  // ①遅延中 ②当日締切 ③自分のタスクが差し戻された ④自分がレビュアーで承認待ち、の4種類。
-  // 各種類は設定ページ（SettingsView.tsx）でON/OFFでき、OFFの種類はここで一切生成しない
+  // 通知ベルの「自分宛て」アラート一覧。notificationTasks（全プロジェクト横断。
+  // docs/要件定義書.md§6）から毎レンダー時に導出する。種類ごとに設定ページ
+  // （SettingsView.tsx）でON/OFFでき、OFFの種類はここで一切生成しない
   const todayStr = getTodayJstDateString();
   const notifications: NotificationItem[] = [];
 
@@ -765,17 +645,13 @@ export default function App() {
 
   // ---- タスク操作ハンドラー（子コンポーネントへPropsとして配布。すべてSupabase経由の非同期処理） ----
 
-  // タスクの新規作成／編集保存。
-  // 担当者（task_assignees）・サブタスク（task_subtasks）は、差分計算をせず
-  // 「いったん全削除してから作り直す」方式にしている（認証・DB設計書.md 7章参照）。
-  // 保存後はrefreshTasks()でサーバーの最新状態を読み直す
-  // createdBy（作成者）は受け取らない。新規作成時はここでcurrentUserIdから設定するため
-  // （TaskForm.tsx側もOmitで除外している）
+  // タスクの新規作成／編集保存。担当者・サブタスクは差分計算せず「全削除してから作り直す」
+  // 方式（docs/詳細設計書_認証DB編.md2.3）。createdByは受け取らず、新規作成時はここで
+  // currentUserIdから設定する（TaskForm.tsx側もOmitで除外）
   const handleSaveTask = async (taskData: Omit<Task, 'id' | 'status' | 'createdBy'>) => {
-    // 新規作成時はcurrentProjectIdが必須（tasks.project_idはNOT NULL制約のため。
-    // プロジェクト管理機能_要件定義書.md §3.3）。編集時（editingTaskがある場合）は
-    // TaskForm.tsxの「プロジェクト」欄（§2.5・ステップ6）でtaskData.projectIdが
-    // 他プロジェクトのIDに変わっている可能性があるため、下記taskRowにそのまま含める
+    // 新規作成時はcurrentProjectIdが必須（project_idがNOT NULL制約のため。
+    // docs/要件定義書_プロジェクト管理機能.md§3.3）。編集時はTaskForm.tsxの「プロジェクト」欄
+    // （§2.5）でtaskData.projectIdが他プロジェクトIDに変わり得るため、そのまま含める
     if (!editingTask && !currentProjectId) {
       alert('プロジェクトが選択されていません。サイドバーからプロジェクトを選択してください。');
       return;
@@ -835,17 +711,14 @@ export default function App() {
     }
 
     await refreshTasks();
-    await refreshNotificationTasks(); // 【ステップ8】保存したタスクが他プロジェクトの場合もあるため通知も更新
+    await refreshNotificationTasks(); // 保存したタスクが他プロジェクトの場合もあるため通知も更新
     setIsModalOpen(false);
     setEditingTask(undefined);
   };
 
-  // タスクの削除（task_assignees・task_subtasksはon delete cascadeで自動的に一緒に消える）。
-  // RLSポリシー上、削除は作成者(created_by)のみ可能（認証・DB設計書.md5章）。ただしTaskCard.tsxの
-  // 削除ボタンは誰のタスクでも表示されるため、他人のタスクを削除しようとした場合、Supabase側は
-  // エラーを返さず「0件削除」で成功扱いになる（RLSが対象行を除外するだけのため）。
-  // それをそのままrefreshTasks()すると、ユーザーには「削除ボタンを押したのに何も起きない」
-  // という原因不明の挙動に見えてしまうため、削除件数を明示的に確認し、0件のときは理由を伝える
+  // タスクの削除（task_assignees・task_subtasksはcascadeで自動的に消える）。RLS上、
+  // 削除は作成者のみ可能（docs/詳細設計書_認証DB編.md3.1）。他人のタスクを削除しようとすると
+  // RLSに除外されて「0件削除」で成功扱いになるため、件数を確認して理由を伝える
   const handleDeleteTask = async (id: string) => {
     const { error, count } = await supabase.from('tasks').delete({ count: 'exact' }).eq('id', id);
     if (error) {
@@ -857,7 +730,7 @@ export default function App() {
       return;
     }
     await refreshTasks();
-    await refreshNotificationTasks(); // 【ステップ8】削除したタスクの通知も即座に消す
+    await refreshNotificationTasks(); // 削除したタスクの通知も即座に消す
   };
 
   // カンバンのドラッグ＆ドロップ等によるステータス変更。
@@ -876,7 +749,7 @@ export default function App() {
       return;
     }
     await refreshTasks();
-    await refreshNotificationTasks(); // 【ステップ8】ステータス変更（遅延解消等）を通知へ即座に反映
+    await refreshNotificationTasks(); // ステータス変更（遅延解消等）を通知へ即座に反映
   };
 
   // 承認申請／承認完了／差し戻しの3アクションをまとめて処理する
@@ -894,7 +767,7 @@ export default function App() {
       return;
     }
     await refreshTasks();
-    await refreshNotificationTasks(); // 【ステップ8】承認申請・承認・差し戻しを通知へ即座に反映
+    await refreshNotificationTasks(); // 承認申請・承認・差し戻しを通知へ即座に反映
   };
 
   // タスクカードクリック等によるタスク編集モーダルの起動
@@ -903,11 +776,9 @@ export default function App() {
     setIsModalOpen(true);
   };
 
-  // 【ステップ8】通知ベルのアイテムをクリックしたときの起動（要件定義書§4）。
-  // 通知は全プロジェクト横断（notificationTasks）のため、クリックしたタスクが選択中でない
-  // 別プロジェクトのものであれば、先にcurrentProjectIdをそのプロジェクトへ自動的に
-  // 切り替えてから編集モーダルを開く（切り替えないと、TaskForm.tsxを閉じた後に戻る
-  // ダッシュボード等が選択中プロジェクトのままで、せっかく開いたタスクの文脈と食い違うため）
+  // 通知クリック時の起動。タスクが選択中でない別プロジェクトのものであれば、先に
+  // currentProjectIdを切り替えてから編集モーダルを開く（そうしないと編集後に戻る画面が
+  // 選択中プロジェクトのままでタスクの文脈と食い違うため）
   const handleNotificationClick = (task: Task) => {
     if (task.projectId !== currentProjectId) {
       setCurrentProjectId(task.projectId);
@@ -948,13 +819,13 @@ export default function App() {
   // サイドバーの「プロジェクト管理」アコーディオンの開閉切り替え
   const handleToggleProjectMenu = () => setIsProjectMenuOpen((prev) => !prev);
 
-  // 【ステップ4：プロジェクト管理タブ】新規作成モーダルを開く（編集対象なし）
+  // 新規作成モーダルを開く（編集対象なし）
   const handleOpenCreateProject = () => {
     setEditingProject(undefined);
     setIsProjectFormOpen(true);
   };
 
-  // 既存プロジェクトの編集モーダルを開く（ProjectManagementView側でオーナーのみに表示済み）
+  // 既存プロジェクトの編集モーダルを開く（ProjectManagementView側でオーナーにのみ表示）
   const handleOpenEditProject = (project: Project) => {
     setEditingProject(project);
     setIsProjectFormOpen(true);
@@ -965,17 +836,10 @@ export default function App() {
     setEditingProject(undefined);
   };
 
-  // プロジェクトの新規作成・編集の保存。作成時はhandle_new_project()トリガー
-  // （supabase-migration-projects.sql）がcreated_byを自動的にオーナーとしてproject_membersへ
-  // 登録するため、ここではprojectsテーブルへのinsertのみを行えばよい。
-  // 新規作成した場合は、確認済みの仕様どおり作成したプロジェクトをそのまま選択中にする
-  //
-  // 【はまった不具合と修正】`.insert(...).select('id').single()`のRETURNINGは、SELECT用のRLS
-  // ポリシー（projects_select_member）の可視性チェックも受けるが、上記トリガーがproject_members
-  // へオーナー登録を終える前にこのチェックが走ってしまい、「作成した本人なのに作成直後は
-  // 自分のプロジェクトが見えない」という理由でRETURNINGが失敗していた（RLSの一種の
-  // 鶏と卵問題）。projects_select_memberに「auth.uid() = created_by」も許可条件として
-  // 追加することで解消済み（supabase-migration-projects-select-fix.sql参照）
+  // プロジェクトの新規作成・編集の保存。作成時はhandle_new_project()トリガーが
+  // created_byを自動的にオーナーとしてproject_membersへ登録するため、insertのみでよい。
+  // RETURNINGはSELECT用RLSの可視性チェックも受けるため、登録が終わる前だと失敗する
+  // （RLSの「鶏と卵問題」。詳細：学習ノート.md8.2）
   const handleSaveProject = async (data: { name: string; description?: string; status: ProjectStatus }) => {
     if (editingProject) {
       const { error } = await supabase
@@ -1004,10 +868,8 @@ export default function App() {
     handleCloseProjectForm();
   };
 
-  // プロジェクトの削除（オーナーのみ。RLSの`projects_delete_owner`で保証。ProjectManagementView側でも
-  // オーナーのみに削除ボタンを表示済み。supabase.mdのルール：DB側の権限とUI側の表示を一致させる）。
-  // `tasks.project_id`は`on delete cascade`のため、配下のタスクもまとめて削除される。
-  // 元に戻せない操作のため、実行前に必ず確認ダイアログを挟む（code-style.mdのルール）
+  // プロジェクトの削除（オーナーのみ。RLSの`projects_delete_owner`で保証）。`project_id`は
+  // cascadeのため配下のタスクもまとめて消える。元に戻せないため確認ダイアログを挟む
   const handleDeleteProject = async (project: Project) => {
     const confirmed = window.confirm(
       `「${project.name}」を削除しますか？\nこのプロジェクト内のタスクもすべて削除されます。この操作は元に戻せません。`
@@ -1026,8 +888,8 @@ export default function App() {
     await refreshProjectSummaries();
   };
 
-  // 【ステップ5：メンバー管理・オーナー譲渡UI】メンバー管理モーダルの開閉
-  // （ProjectManagementView側でオーナーのみに「メンバー管理」ボタンを表示済み）
+  // メンバー管理モーダルの開閉（ProjectManagementView側でオーナーにのみ
+  // 「メンバー管理」ボタンを表示）
   const handleOpenMemberModal = (project: Project) => setMemberModalProjectId(project.id);
   const handleCloseMemberModal = () => setMemberModalProjectId(null);
 
@@ -1068,10 +930,8 @@ export default function App() {
     await refreshProjectSummaries();
   };
 
-  // オーナー譲渡（要件定義書§6.1）。呼び出し本人が現オーナーであることの検証は
-  // transfer_project_ownership()側（security definer）で行われるため、ここでは
-  // 確認ダイアログを挟んでRPCを呼ぶだけでよい。実行すると自分はメンバーに降格するため、
-  // オーナー限定の操作ボタンが出せなくなる状態を避けるためモーダルを閉じる
+  // オーナー譲渡（docs/要件定義書_プロジェクト管理機能.md§6.1）。本人確認はRPC側
+  // （security definer）で行うため、確認ダイアログを挟んで呼ぶだけでよい
   const handleTransferOwnership = async (userId: string) => {
     if (!memberModalProjectId) return;
     const targetName = users.find((u) => u.id === userId)?.name ?? 'このユーザー';
@@ -1089,11 +949,9 @@ export default function App() {
     await refreshProjectSummaries();
   };
 
-  // 【ステップ7：オーナー引き継ぎ】退会フロー（設定＞データ画面）からのオーナー譲渡。
-  // 上のhandleTransferOwnershipはメンバー管理モーダル専用（対象をmemberModalProjectIdから
-  // 決め、成功後にモーダルを閉じる）ため、退会フロー用に別関数として用意する。
-  // こちらはモーダルを持たず、OwnershipHandoverSection.tsx側の行ごとのエラー表示に使うため
-  // エラーメッセージ文字列（またはnull）をそのまま返す（onDeleteAccount等と同じ形式）
+  // 退会フロー用のオーナー譲渡。上のhandleTransferOwnershipはメンバー管理モーダル専用
+  // のため、モーダルを持たない別関数として用意する。OwnershipHandoverSection.tsx側の
+  // 行ごとのエラー表示に使うためエラーメッセージ文字列（またはnull）を返す
   const handleTransferOwnershipForRetirement = async (projectId: string, newOwnerId: string): Promise<string | null> => {
     const { error } = await supabase.rpc('transfer_project_ownership', {
       p_project_id: projectId,
@@ -1105,10 +963,8 @@ export default function App() {
   };
 
   // プロジェクトからの脱退（オーナー以外のメンバー本人のみ。RLSの
-  // `project_members_delete_owner_or_self`で保証。オーナー本人は他の誰かへ譲渡するまで
-  // 抜けられない仕様のため、ProjectManagementView側でも非オーナーにのみ「抜ける」ボタンを
-  // 表示済み）。脱退後に選択中プロジェクトだった場合の後始末は、既存のuseEffect
-  // （projectsから選択中プロジェクトが消えたらcurrentProjectIdをnullにする）に任せる
+  // `project_members_delete_owner_or_self`で保証）。脱退後の選択状態解除は既存の
+  // useEffect（projectsから消えたらcurrentProjectIdをnullにする）に任せる
   const handleLeaveProject = async (project: Project) => {
     if (!window.confirm(`「${project.name}」から抜けますか？`)) return;
 
@@ -1141,12 +997,9 @@ export default function App() {
     setUsers(prev => prev.map(u => (u.id === currentUserId ? { ...u, name: trimmed } : u)));
   };
 
-  // アバター画像をアップロードする（設定ページのプロフィールセクションから呼ばれる）。
-  // Supabase Storageの`avatars`バケット（supabase-migration-profile.sql参照）に
-  // 「<自分のuser_id>/avatar」という固定パスでアップロードし（upsert:trueで毎回上書き、
-  // 別ファイルが増え続けないようにする）、公開URLをprofiles.avatar_urlに保存する。
-  // 同じパスを使い回すと同じURLになりブラウザ/CDNのキャッシュが残りやすいため、
-  // 保存するURLの末尾にタイムスタンプを付けてキャッシュを回避する
+  // アバターアップロード。`avatars`バケットへ固定パス（upsert:trueで毎回上書き）で
+  // 保存する。同じパスだとCDNキャッシュが残るため、URL末尾にタイムスタンプを付けて
+  // キャッシュを回避する
   const handleUploadAvatar = async (file: File) => {
     const path = `${currentUserId}/avatar`;
     const { error: uploadError } = await supabase.storage
@@ -1163,11 +1016,9 @@ export default function App() {
     setUsers(prev => prev.map(u => (u.id === currentUserId ? { ...u, avatarUrl: bustedUrl } : u)));
   };
 
-  // ログイン中にパスワードを変更する（設定ページのプロフィールセクションから呼ばれる。
-  // メールリンク経由のResetPassword.tsxとは別の入り口）。
-  // Supabaseの`updateUser`はアクティブなセッションがあれば現在のパスワードを知らなくても
-  // 更新できてしまうため、なりすまし対策として「現在のパスワード」で一度サインインし直す
-  // （＝本人確認）ことを必須にしてから更新する
+  // パスワード変更（ResetPassword.tsxのメールリンク経由とは別の入り口）。updateUserは
+  // セッションさえあれば現パスワードなしで更新できてしまうため、現在のパスワードでの
+  // 再サインインを必須にしてから更新する（なりすまし対策）
   const handleChangePassword = async (currentPassword: string, newPassword: string): Promise<string | null> => {
     const email = session?.user.email;
     if (!email) return 'ログイン情報を確認できませんでした。再度ログインし直してください。';
@@ -1181,15 +1032,9 @@ export default function App() {
     return null;
   };
 
-  // 【ゲストログイン・2026-08-31不具合対応】delete_own_account()でauth.usersの自分自身の
-  // 行を削除した直後にsupabase.auth.signOut()を呼ぶと、Supabase側が「JWTのsubクレームに
-  // 対応するユーザーが見つからない」（code: user_not_found）というエラーを返すことがある
-  // （Supabase Auth側の既知の挙動。GitHub Issue: supabase/auth#1801等）。ローカルの
-  // セッションをクリアするという目的自体は達成できるため、scope: 'local'を指定した上で
-  // エラーは無視する（アカウント自体は既にDB上から削除済みなので実害はなく、動作確認でも
-  // ログイン画面へ正しく戻ること・ゲストデータが実際に消えていることを確認済み。この経路では
-  // 毎回必ず発生する想定内のエラーのため、コンソールを紛らわしくしないためログにも出さない）。
-  // 退会（handleDeleteAccount）・ゲストログアウト（handleLogout）の両方で共通して使う
+  // 自分自身をauth.usersから削除した直後にsignOut()を呼ぶとuser_not_foundエラーになる
+  // Supabase Auth既知の挙動（経緯：学習ノート.md8.6）。実害はないためscope: 'local'で
+  // エラーを無視する。退会・ゲストログアウトの両方で共通して使う
   const signOutAfterAccountDeletion = async () => {
     try {
       await supabase.auth.signOut({ scope: 'local' });
@@ -1198,14 +1043,9 @@ export default function App() {
     }
   };
 
-  // 退会（アカウント削除。設定ページの「データ」タブから呼ばれる）。
-  // Supabaseのanonキーではauth.usersを直接削除できないため、あらかじめ用意した
-  // security definer関数`delete_own_account()`（supabase-migration-account-deletion.sql
-  // 参照）をRPC経由で呼ぶ。パスワード変更と同様、実行前に現在のパスワードで再認証して
-  // 本人確認する。削除成功後はローカルのセッションもクリアするためsignOutを呼んでおく
-  // （auth.users自体は既に消えているため、サーバー側には既にセッションは存在しない。
-  // 【ゲストログイン・2026-08-31不具合対応】このため通常のsignOut()ではなく
-  // signOutAfterAccountDeletionを使う）
+  // 退会（アカウント削除）。anonキーではauth.usersを直接削除できないため、security
+  // definer関数`delete_own_account()`をRPC経由で呼ぶ。実行前に現在のパスワードで
+  // 本人確認し、削除後はsignOutAfterAccountDeletionでセッションをクリアする
   const handleDeleteAccount = async (password: string): Promise<string | null> => {
     const email = session?.user.email;
     if (!email) return 'ログイン情報を確認できませんでした。再度ログインし直してください。';
@@ -1220,14 +1060,9 @@ export default function App() {
     return null;
   };
 
-  // ログアウト（設定ページやSidebarのログアウトボタンから呼ばれる）。
-  // 誤タップでのログアウトを防ぐため、実行前に確認ダイアログを挟む
-  //
-  // 【ゲストログイン・2026-08-31】ゲスト（匿名）アカウントの場合は、ログアウト前に
-  // 既存のdelete_own_account()（退会機能のRPC。auth.uid()基準で「自分自身」のデータのみ
-  // 削除する）を呼び、Login.tsx側で自動投入したデモ用プロジェクト・タスクごと片付けてから
-  // サインアウトする。これにより匿名アカウントがDBに溜まり続けるのを防ぐ（Login.tsx参照）。
-  // 削除後のsignOutはsignOutAfterAccountDeletionを使う（上記コメント参照）
+  // ログアウト。誤タップ防止に確認ダイアログを挟む。ゲスト（匿名）アカウントの場合は
+  // 先にdelete_own_account()でデモデータごと削除してからサインアウトする
+  // （匿名アカウントがDBに溜まり続けるのを防ぐため）
   const handleLogout = async () => {
     if (!window.confirm('ログアウトしますか？')) return;
     if (session?.user.is_anonymous) {
@@ -1239,13 +1074,9 @@ export default function App() {
     await supabase.auth.signOut();
   };
 
-  // タスクデータをサンプルタスクにリセットする（設定ページの「データ」セクションから呼ばれる）。
-  // 複数人でタスクを共有する構成に変わったため、「自分が作成したタスクだけ」を削除して
-  // 作り直す（他のユーザーが作成したタスクは削除しない）。元に戻せない操作のため、
-  // 実行前に必ず確認ダイアログを挟む。
-  // 削除自体はこれまで通りプロジェクトを跨いで（自分が作成した全タスクを対象に）行うが
-  // （プロジェクト単位への変更は見送り。要件定義書§5）、作り直す1件のサンプルタスクには
-  // project_idが必須（NOT NULL制約）なので、選択中プロジェクトへ作成する
+  // サンプルタスクへのリセット（docs/要件定義書.md§7）。複数人で共有するため「自分が
+  // 作成したタスクだけ」を削除して作り直す。削除はプロジェクトを跨ぐが、作り直す1件は
+  // project_idが必須のため選択中プロジェクトへ作成する
   const handleResetSampleData = async () => {
     if (!currentProjectId) {
       alert('プロジェクトが選択されていません。サイドバーからプロジェクトを選択してください。');
@@ -1289,14 +1120,11 @@ export default function App() {
 
     await supabase.from('task_assignees').insert({ task_id: inserted.id, user_id: currentUserId });
     await refreshTasks();
-    await refreshNotificationTasks(); // 【ステップ8】リセットで自分のタスクが入れ替わるため通知も更新
+    await refreshNotificationTasks(); // リセットで自分のタスクが入れ替わるため通知も更新
   };
 
-  // ヘッダーのテーマ切替メニューに表示するラベル一覧（AppTheme各値 → 表示名）
-  // 2026-08-25：ダーク系に偏りすぎているという指摘を受け、視認性が低かった
-  // TERRACOTTA・COFFEEを廃止し、ライト系（クリーム・オフホワイト基調）を6種類に拡充
-  // （ダーク6種・ライト6種の計12種。ライト系はどれも刺激の強い純白は避けている）。
-  // GRAPHITEをデフォルト兼先頭に変更（オブジェクトのプロパティ順＝設定画面での表示順）
+  // テーマ切替メニューのラベル一覧。ダーク6種・ライト6種の計12種（純白は避けている）。
+  // GRAPHITEがデフォルト兼先頭（オブジェクトのプロパティ順＝表示順）
   const themeLabels: Record<AppTheme, string> = {
     'graphite-dark': 'GRAPHITE', 'sage-dark': 'SAGE', 'bronze-dark': 'BRONZE',
     'ocean-dark': 'OCEAN', 'amethyst-dark': 'AMETHYST', 'lime-dark': 'LIME',
@@ -1313,9 +1141,8 @@ export default function App() {
     </div>
   );
 
-  // 初回のセッション確認が終わるまでは、何も出さず待つ（ログイン画面がちらつくのを防ぐ）
-  // h-dvh/w-dvw：iOS Safariのアドレスバー分だけ100vhが実際の表示領域より大きくなり、
-  // 下端が隠れたりスクロール挙動がおかしくなる不具合対策（100vhではなく動的ビューポート単位を使う）
+  // 初回のセッション確認が終わるまで何も出さず待つ（ログイン画面のちらつき防止）。
+  // h-dvh/w-dvwはiOS Safariのアドレスバー分のズレ対策
   if (authLoading) {
     return (
       <div className="flex h-dvh w-dvw items-center justify-center bg-base text-text-sub text-xs font-bold tracking-widest uppercase">
@@ -1324,9 +1151,8 @@ export default function App() {
     );
   }
 
-  // パスワード再設定メールのリンクを踏んだ直後は、認証済み（一時セッション）であっても
-  // 通常のダッシュボードへは進ませず、新しいパスワードの入力画面を優先して表示する。
-  // 更新が完了したらonDoneでこのフラグをfalseに戻し、通常のダッシュボードへ進む
+  // パスワード再設定リンクを踏んだ直後は、認証済みでも通常画面へ進ませず入力画面を
+  // 優先表示する（更新完了後にonDoneでフラグを戻す）
   if (isPasswordRecovery) {
     return <ResetPassword onDone={() => setIsPasswordRecovery(false)} />;
   }
@@ -1383,9 +1209,9 @@ export default function App() {
             <span className="text-[10px] md:text-xs font-black tracking-widest uppercase text-accent truncate">
               {currentView === 'dashboard' ? 'ダッシュボード' : currentView === 'tasks' ? 'タスクボード' : currentView === 'schedule' ? 'スケジュール' : currentView === 'settings' ? '設定' : currentView === 'notifications' ? '通知' : '拡張機能'}
             </span>
-            {/* 選択中プロジェクト名の常時表示バッジ（ユーザー要望：2026-08-29）。ヘッダーはサイドバーと
-                違いスマホでも常に表示され続けるため、ここに置くのが最も「常時」に近い。
-                幅の余裕が無いスマホ幅では省略し、sm以上でのみ表示する */}
+            {/* 選択中プロジェクト名の常時表示バッジ。ヘッダーはサイドバーと違いスマホでも
+                常に表示され続けるため、ここに置くのが最も「常時」に近い。幅の余裕が無い
+                スマホ幅では省略し、sm以上でのみ表示する */}
             {currentProject && (
               <span
                 className="hidden sm:inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-surface border border-border-card/60 text-[10px] font-bold text-text-sub max-w-[220px]"
@@ -1427,12 +1253,11 @@ export default function App() {
                 )}
               </button>
 
-              {/* 【ステップ8追加要望：2026-08-29】通知が全プロジェクト横断になり、件数が増えると
-                  このドロップダウンだけでは（幅288px・高さ最大384pxで内部スクロール）狭く、
-                  どのプロジェクトの通知か分かりにくいという指摘を受け、ここは直近6件だけの
-                  「プレビュー」に徹する構成へ変更した。プロジェクト名タグを追加し、全件は
-                  「すべて見る→」から専用画面（NotificationsView.tsx・currentView='notifications'）
-                  へ遷移して確認する2段構えにした */}
+              {/* 通知は全プロジェクト横断のため件数が増えやすく、このドロップダウン
+                  （幅288px・高さ最大384pxで内部スクロール）だけでは狭く、どのプロジェクトの
+                  通知か分かりにくい。そのためここは直近6件だけの「プレビュー」に徹し、
+                  プロジェクト名タグを添える。全件は「すべて見る→」から専用画面
+                  （NotificationsView.tsx・currentView='notifications'）で確認する構成にしている */}
               {isNotifOpen && (
                 <div className="absolute right-0 mt-1.5 w-72 bg-card border border-border-card rounded-xl shadow-2xl p-1.5 z-50 animate-scale-in">
                   {notifications.length === 0 ? (
@@ -1489,13 +1314,10 @@ export default function App() {
               </svg>
             </button>
 
-            {/* アバター：avatar_urlが設定されていれば画像を、無ければ自分のprofiles.display_nameの
-                先頭2文字を表示（未取得時は空欄）。<img>にコンテナと全く同じw-7/h-7 md:w-8/h-8を
-                指定しているのは、`w-full h-full`のような親依存サイズだと画像の実サイズによって
-                このflexアイテムの自動最小サイズが押し上げられ、正円が崩れて巨大化する不具合
-                （Safari等で顕著）があるため。ピクセル固定サイズにして完全に無関係にしている。
-                画像が設定されている場合のみクリック可能にし、ImageLightboxで原寸表示する
-                （X/Instagramのプロフィール画像タップと同じ挙動のイメージ） */}
+            {/* アバター：avatar_url未設定時はdisplay_nameの先頭2文字を表示。<img>に固定
+                サイズを指定しているのは、親依存サイズだと画像の実サイズでflexアイテムが
+                押し上げられ正円が崩れる不具合（Safari等）があるため。画像設定時のみ
+                クリックでImageLightbox表示する */}
             <button
               type="button"
               onClick={() => { if (myProfile?.avatarUrl) setIsAvatarPreviewOpen(true); }}
@@ -1525,7 +1347,7 @@ export default function App() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 md:px-8 py-2.5 bg-card/10 border-b border-border-card flex-shrink-0 select-none">
             {/* 担当者・カテゴリ・優先度の3つの選択を flex-wrap にし、幅の狭いスマホ画面でも
                 横はみ出し（横スクロール）せず自然に折り返すようにする。
-                画面（タブ）ごとには分けず、全画面共通のフィルターとして扱う（ユーザー確認済み） */}
+                画面（タブ）ごとには分けず、全画面共通のフィルターとして扱う */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               {/* 担当者個別選択 */}
               <div className="flex items-center gap-1.5">
@@ -1580,15 +1402,10 @@ export default function App() {
           </div>
         )}
 
-        {/* メインビュー領域（独立スクロール）
-            高さは h-[calc(...)] のような固定値ではなく flex-1 + min-h-0 で計算しており、
-            ヘッダーやフィルターバーの実際の高さ（スマホ幅で折り返して増える等）に
-            関わらず、残り領域を正しく埋める。
-            `@container`：KanbanBoard.tsx側でタスクボードのレイアウト（横スクロール式の
-            固定幅カラム表示 ⇔ 4等分グリッド表示）の切り替えを、ビューポート幅ではなく
-            「実際にこのmainに残っている横幅」基準（コンテナクエリ）で判定できるようにする。
-            サイドバー開閉で実際の幅が変わるため、ビューポート幅（md:等）だけで判定すると、
-            タブレット幅でサイドバーを開いた状態のときにボードが崩れる不具合があった */}
+        {/* メインビュー領域：flex-1 + min-h-0で残り領域を埋める（固定値は使わない）。
+            `@container`はKanbanBoard.tsxのレイアウト切り替えをビューポート幅ではなく
+            実際の残り横幅で判定するため（サイドバー開閉で幅が変わるとビューポート幅
+            だけの判定ではボードが崩れるため） */}
         <main className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 bg-base/50 @container">
           <div className="max-w-7xl mx-auto w-full h-full">
             {tasksLoading && tasks.length === 0 && (

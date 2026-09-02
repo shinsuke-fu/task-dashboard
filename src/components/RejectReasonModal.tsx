@@ -1,16 +1,7 @@
 /**
  * src/components/RejectReasonModal.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   カンバンで「査読・承認待ち(review)」のタスクを差し戻す際に、
- *   その場で理由を自由入力できるモーダル。isOpen=trueの間だけ描画される。
- *
- * 【主な処理】
- *   1. isOpenがtrueになるたびに入力欄をリセット
- *   2. 送信時、trim後に空文字（未入力・空白のみ）なら送信せず処理を中断する
- *      （textareaのrequired属性と合わせて「理由は必ず書く」を徹底する）
- *      実際のタスク更新処理はApp.tsx側のhandleConfirmRejectが担当
- * -----------------------------------------------------------------------
+ * review状態のタスクを差し戻す際、理由を自由入力するモーダル。実際のタスク更新は
+ * App.tsx側のhandleConfirmRejectが担当する。
  */
 import React, { useState, useEffect } from 'react';
 
@@ -31,8 +22,7 @@ export const RejectReasonModal: React.FC<RejectReasonModalProps> = ({ isOpen, on
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // 空白のみの入力（スペース連打など）はtextareaのrequiredでは弾けないため、
-    // trim後に空ならここで送信を中断する（デフォルト文言での補完は行わない）
+    // 空白のみの入力はtextareaのrequiredでは弾けないため、trim後に空ならここで中断する
     const trimmed = reason.trim();
     if (!trimmed) return;
     onSubmit(trimmed);

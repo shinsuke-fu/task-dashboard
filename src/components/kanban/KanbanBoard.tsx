@@ -1,19 +1,8 @@
 /**
  * src/components/kanban/KanbanBoard.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   「タスク一覧」ビュー本体。todo/doing/review/done の4カラムに
- *   タスクをドラッグ＆ドロップで移動できるカンバンボード。
- *
- * 【主な処理】
- *   1. tasksを共通フィルター（filterTasks）で担当者・カテゴリ・優先度を絞り込み、
- *      さらにcolumn.id（ステータス）ごとに振り分けて表示
- *   2. ドラッグ＆ドロップでのステータス変更を処理。
- *      review → doing への移動だけは特別扱いし、差し戻し理由モーダルを起動する。
- *      また、review状態からの移動（差し戻し・承認完了に相当）は、TaskCard.tsxの
- *      ボタンと同じく確認者（reviewerId）本人にしか許可しない
- *      （ドラッグ＆ドロップがボタンの権限チェックを迂回する抜け道にならないようにする）
- * -----------------------------------------------------------------------
+ * 「タスク一覧」ビュー本体。todo/doing/review/doneの4カラムにタスクをドラッグ＆
+ * ドロップで移動できるカンバンボード。review状態からの移動はTaskCard.tsxのボタンと
+ * 同じく確認者本人のみ許可する（D&Dが権限チェックの抜け道にならないようにする）。
  */
 import { useState, useMemo } from 'react';
 import type { Task, TaskStatus } from '../../types/task';
@@ -54,13 +43,11 @@ export default function KanbanBoard({
     { id: 'done', title: '完了', dotBg: 'bg-emerald-500' },
   ];
 
-  // 既存の完全リアルタイムフィルタリングロジック（共通ユーティリティに一本化）
   const displayTasks = useMemo(
     () => filterTasks(tasks, filterUser, filterCategory, filterPriority),
     [tasks, filterUser, filterCategory, filterPriority]
   );
 
-  // ドロップ時のハンドラー：review→doingの移動だけ差し戻しモーダル経由にし、それ以外は即時ステータス変更
   const handleDrop = (e: React.DragEvent, targetStatus: TaskStatus) => {
     e.preventDefault();
     setActiveColumn(null);
@@ -70,31 +57,22 @@ export default function KanbanBoard({
     const draggedTask = tasks.find(t => t.id === taskId);
     if (!draggedTask) return;
 
-    // review状態からの移動（差し戻し・承認完了に相当）は確認者本人のみ許可。
-    // ボタンでの操作と権限ルールを揃え、ドラッグ＆ドロップが抜け道にならないようにする
     if (draggedTask.status === 'review' && targetStatus !== 'review' && draggedTask.reviewerId !== currentUserId) {
       alert('このタスクは確認者のみ操作できます。');
       return;
     }
 
     if (draggedTask.status === 'review' && targetStatus === 'doing') {
-      onTriggerReject(taskId); // 差し戻しモーダルを起動
+      onTriggerReject(taskId);
     } else {
-      onUpdateStatus(taskId, targetStatus); // 通常の移動
+      onUpdateStatus(taskId, targetStatus);
     }
   };
 
   return (
-    // 4カラムを横並びグリッドで見せるには、実際に最低でも1040px前後の横幅が要る
-    // （カード内のバッジ・ボタン類が崩れずに収まる目安）。以前はこの切り替えを
-    // ビューポート幅（md:）で判定していたが、サイドバーが開いているかどうかで
-    // 実際にこのボードへ残る横幅は変わる（例：タブレット幅でサイドバーを開くと
-    // ビューポート上はmd以上でも、実際の残り幅は500px程度しかない）ため、
-    // ビューポート幅だけで判定するとタブレットでサイドバーを開いたときに
-    // カラムが極端に狭くなりボードが崩れる不具合があった。
-    // `@min-[1040px]:`はコンテナクエリ（App.tsxの<main>に付けた`@container`基準）で、
-    // 「実際にこのボードへ残っている横幅」で判定するため、サイドバーの開閉状態に
-    // 関わらず正しく切り替わる
+    // `@min-[1040px]:`はコンテナクエリ（App.tsxの<main>の`@container`基準）で、実際に
+    // このボードへ残っている横幅で判定する。ビューポート幅（md:）だと、サイドバーが
+    // 開いていて実際の残り幅が狭いときにカラムが崩れるため使わない
     <div className="flex @min-[1040px]:grid @min-[1040px]:grid-cols-4 gap-4 overflow-x-auto pb-4 @min-[1040px]:overflow-visible select-none">
       {columns.map((column) => {
         const filteredTasks = displayTasks.filter((task) => task.status === column.id);
@@ -110,7 +88,6 @@ export default function KanbanBoard({
               isHovered ? 'border-accent bg-accent/5 scale-[1.01]' : 'border-border-card'
             }`}
           >
-            {/* カラムヘッダー */}
             <div className="flex items-center justify-between mb-4 pb-2 border-b border-border-card/60">
               <div className="flex items-center gap-2">
                 <span className={`w-1.5 h-1.5 rounded-full ${column.dotBg}`} />
@@ -119,7 +96,6 @@ export default function KanbanBoard({
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-card text-text-sub">{filteredTasks.length}</span>
             </div>
 
-            {/* カードリスト */}
             <div className="space-y-3 flex-1 overflow-y-auto">
               {filteredTasks.length === 0 ? (
                 <div className="h-28 border border-dashed border-border-card rounded-xl flex items-center justify-center text-xs text-text-sub font-medium tracking-wider">

@@ -7,7 +7,8 @@
 --   task_assignees とサブタスクテーブル task_subtasks は supabase-schema.sql 作成時の
 --   ポリシー（to authenticated using (true) = ログイン済みなら誰でも閲覧・追加・削除可）の
 --   まま更新されておらず、プロジェクトメンバーかどうかのチェックが漏れていた
---   （2026-09-02 ドキュメント監査で発覚。認証・DB設計書.md 11.5参照）。
+--   （2026-09-02 ドキュメント監査で発覚。docs/詳細設計書_認証DB編.md 3.1参照。
+--   経緯は学習ノート.md 8.3参照）。
 --
 -- 【実害】
 --   task_assigneesは「どのタスクIDに誰が割り当てられているか」の対応表、task_subtasksは
@@ -27,7 +28,7 @@
 --    自分がそのプロジェクトのメンバーかどうかを判定するsecurity definerヘルパー関数。
 --    is_project_member(project_id)（supabase-migration-projects.sql）と同じ考え方で、
 --    RLSをバイパスして判定することで「参照先がまだRLSで見えない」ケースを避ける
---    （鶏と卵問題。認証・DB設計書.md 11.5.1①参照）。
+--    （鶏と卵問題。docs/詳細設計書_認証DB編.md 3.1〜3.2参照）。
 -- -----------------------------------------------------------------------------
 create or replace function public.is_task_project_member(p_task_id uuid)
 returns boolean
@@ -87,5 +88,5 @@ create policy "task_subtasks_delete_project_member" on task_subtasks
 
 
 -- =============================================================================
--- 実行後の反映先：認証・DB設計書.md 11.5（このファイルの内容を反映済み）
+-- 実行後の反映先：docs/詳細設計書_認証DB編.md 3.1（このファイルの内容を反映済み）
 -- =============================================================================

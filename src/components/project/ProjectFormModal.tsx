@@ -1,17 +1,7 @@
 /**
  * src/components/project/ProjectFormModal.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   プロジェクトの新規作成・編集を行うモーダルフォーム。isOpen=trueの間だけ
- *   描画され、editingProjectの有無で「新規作成」「編集」の両モードを兼ねる
- *   （TaskForm.tsxと同じ構造・作法に揃えている）。
- *
- * 【主な処理】
- *   1. isOpenがtrueになった瞬間にフォーム項目を初期化（新規 or 編集内容）
- *   2. 入力項目はプロジェクト名（必須）／説明（任意）／ステータス
- *      （進行中・完了・アーカイブの3値。プロジェクト管理機能_要件定義書.md §2.2）
- *   3. 送信時にonSubmitを呼び出し、実際のSupabaseへの保存はApp.tsx側に委譲する
- * -----------------------------------------------------------------------
+ * プロジェクトの新規作成・編集モーダル（TaskForm.tsxと同じ構造・作法）。
+ * editingProjectの有無で新規／編集の両モードを兼ね、送信はonSubmitに委譲する。
  */
 import { useState, useEffect } from 'react';
 import type { Project, ProjectStatus } from '../../types/task';
@@ -61,7 +51,6 @@ export default function ProjectFormModal({ isOpen, editingProject, onClose, onSu
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
       <form onSubmit={handleSubmit} className="w-full max-w-lg bg-card border border-border-card rounded-2xl p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
 
-        {/* ヘッダー */}
         <div className="flex items-center justify-between pb-2 border-b border-border-card/40">
           <h3 className="font-extrabold text-xs tracking-wider text-text-main">
             {editingProject ? 'プロジェクトを編集' : '新しいプロジェクトを作成'}
@@ -69,7 +58,6 @@ export default function ProjectFormModal({ isOpen, editingProject, onClose, onSu
         </div>
 
         <div className="space-y-4 text-xs">
-          {/* プロジェクト名入力 */}
           <div>
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">プロジェクト名</label>
             <input
@@ -77,16 +65,13 @@ export default function ProjectFormModal({ isOpen, editingProject, onClose, onSu
               placeholder="例：コーポレートサイトリニューアル"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              // ブラウザの自動入力候補（オートコンプリート）を出さないようにする。過去に保存された
-              // 別表記（全角/半角違い等）の候補を選んでしまい、意図と異なる表記で保存される
-              // 事故を避けるための予防策（ユーザー報告：2026-08-29）
+              // ブラウザの自動入力候補（過去保存された別表記）を誤って選ぶ事故を防ぐため無効化
               autoComplete="off"
               className="w-full h-10 bg-base border border-border-card rounded-xl px-4 text-text-main focus:outline-none focus:border-accent"
               required
             />
           </div>
 
-          {/* 説明入力 */}
           <div>
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">説明（任意）</label>
             <textarea
@@ -98,7 +83,6 @@ export default function ProjectFormModal({ isOpen, editingProject, onClose, onSu
             />
           </div>
 
-          {/* ステータス選択 */}
           <div>
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">ステータス</label>
             <select
@@ -117,7 +101,6 @@ export default function ProjectFormModal({ isOpen, editingProject, onClose, onSu
           </div>
         </div>
 
-        {/* 下部アクションボタン */}
         <div className="flex justify-end gap-2 pt-2 border-t border-border-card/30">
           <button type="button" onClick={onClose} className="h-9 px-4 bg-surface hover:bg-base text-text-sub font-bold text-xs rounded-xl cursor-pointer border border-border-card/50 transition">
             キャンセル
