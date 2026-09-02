@@ -18,11 +18,7 @@
 import React from 'react';
 import { APP_NAME, APP_NAME_JA, APP_TAGLINE, APP_VERSION, GITHUB_REPO_URL, PRODUCTION_URL, TECH_STACK, KEY_FEATURES } from '../../constants/app';
 
-interface AboutSectionProps {
-  developerName?: string;
-}
-
-export const AboutSection: React.FC<AboutSectionProps> = ({ developerName }) => {
+export const AboutSection: React.FC = () => {
   return (
     <div className="bg-card border border-border-card rounded-xl p-5 md:p-6 shadow-xs space-y-6">
       <label className="block text-[10px] font-black text-text-sub uppercase">アプリについて</label>
@@ -94,12 +90,6 @@ export const AboutSection: React.FC<AboutSectionProps> = ({ developerName }) => 
           </a>
         </div>
       </div>
-
-      {developerName && (
-        <p className="text-[10px] text-text-sub pt-2 border-t border-border-card/40">
-          開発：{developerName}
-        </p>
-      )}
     </div>
   );
 };
