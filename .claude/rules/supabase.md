@@ -8,7 +8,7 @@ paths:
 
 - **マイグレーションファイルの命名**：`supabase-migration-<内容>.sql`
   （例：`supabase-migration-profile.sql` `supabase-migration-account-deletion.sql`）。
-  実行後は`認証・DB設計書.md`に該当セクションを追記する
+  実行後は`docs/詳細設計書_認証DB編.md`に該当セクションを追記する
 - **security definer関数は必ず`auth.uid()`で本人確認する**：呼び出し元の権限チェックを
   関数内で行い、意図しないユーザーが他人のデータを操作できないようにする
   （`delete_own_account`が実装例）

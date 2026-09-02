@@ -1,14 +1,7 @@
 /**
  * src/components/dashboard/KpiCards.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   ダッシュボード上部に並ぶ4枚のKPIカード（完了率／進捗／査読待ち／
- *   期限超過）を表示する。数値の集計のみを行い、状態は持たない。
- *
- * 【主な処理】
- *   1. filteredTasks（絞り込み後）から完了率・査読待ち件数などを算出
- *   2. JST基準の本日日付と比較し、期限超過（overdue）件数を算出
- * -----------------------------------------------------------------------
+ * ダッシュボード上部の4枚のKPIカード（完了率／進捗／査読待ち／期限超過）。
+ * filteredTasksから数値を集計して表示するだけで、状態は持たない。
  */
 import React from 'react';
 import type { Task } from '../../types/task';
@@ -24,15 +17,12 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks }) => {
   const reviewCount = filteredTasks.filter(t => t.status === 'review').length;
   const completionRate = currentTotal > 0 ? Math.round((doneCount / currentTotal) * 100) : 0;
 
-  // 厳密な日本時間（JST）ベースの本日日付文字列（共通ユーティリティに一本化）
   const todayStr = getTodayJstDateString();
-  // 完了以外・期日ありのタスクのうち、本日より過去の期日を持つものを「期限超過」としてカウント
   const overdueCount = filteredTasks.filter(t => t.status !== 'done' && t.endDate && t.endDate < todayStr).length;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 select-none">
       
-      {/* 1. 全体の完了率 */}
       <div className="bg-card border border-border-card rounded-xl p-4.5 flex items-center justify-between shadow-xs">
         <div className="space-y-1">
           <p className="text-[11px] text-text-sub font-bold tracking-wider uppercase">完了率</p>
@@ -49,7 +39,6 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks }) => {
         </div>
       </div>
 
-      {/* 2. 総タスク / 完了数 */}
       <div className="bg-card border border-border-card rounded-xl p-4.5 flex items-center justify-between shadow-xs">
         <div className="space-y-1">
           <p className="text-[11px] text-text-sub font-bold tracking-wider uppercase">タスク進捗</p>
@@ -67,7 +56,6 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks }) => {
         </div>
       </div>
 
-      {/* 3. 査読・承認待ち */}
       <div className="bg-card border border-border-card rounded-xl p-4.5 flex items-center justify-between shadow-xs">
         <div className="space-y-1">
           <p className="text-[11px] text-text-sub font-bold tracking-wider uppercase">査読待ち</p>
@@ -83,7 +71,6 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ filteredTasks }) => {
         </div>
       </div>
 
-      {/* 4. 期限超過アラート */}
       <div className="bg-card border border-border-card rounded-xl p-4.5 flex items-center justify-between shadow-xs">
         <div className="space-y-1">
           <p className="text-[11px] text-text-sub font-bold tracking-wider uppercase">期限超過</p>

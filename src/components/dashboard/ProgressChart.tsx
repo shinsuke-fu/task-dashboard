@@ -1,14 +1,7 @@
 /**
  * src/components/dashboard/ProgressChart.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   ダッシュボード中段の2枚組グラフ。左側はステータス別の積層バー、
- *   右側はメンバーごとのタスク負荷（担当件数）を表示する。
- *
- * 【主な処理】
- *   1. ステータス（todo/doing/review/done）別の件数・比率を集計
- *   2. 担当者ごとの件数を集計（担当者名の解決は共通ユーティリティを利用）
- * -----------------------------------------------------------------------
+ * ダッシュボード中段の2枚組グラフ。左：ステータス別の積層バー、
+ * 右：メンバーごとのタスク負荷（担当件数）を表示する。
  */
 import React from 'react';
 import type { Task, User } from '../../types/task';
@@ -22,7 +15,6 @@ interface ProgressChartProps {
 export const ProgressChart: React.FC<ProgressChartProps> = ({ tasks, users }) => {
   const total = tasks.length;
 
-  // 1. ステータス別の正確な集計
   const counts = {
     todo: tasks.filter(t => t.status === 'todo').length,
     doing: tasks.filter(t => t.status === 'doing').length,
@@ -32,16 +24,13 @@ export const ProgressChart: React.FC<ProgressChartProps> = ({ tasks, users }) =>
 
   const getPct = (count: number) => (total > 0 ? (count / total) * 100 : 0);
 
-  // 2. 不具合修正：新規作成からのデータ（u1などID表記）も100%確実に名前で集計・連動するロジック
+  // assigneesがID・名前どちらの表記でも表示名に統合できるようresolveAssigneeNameを使う
   const assigneeMap: Record<string, number> = {};
-  
-  // 事前に全員のカウントを0で初期化（空アサインを避けてバランスを一定に保つ）
   users.forEach(u => { assigneeMap[u.name] = 0; });
 
   tasks.forEach(task => {
     if (!task.assignees) return;
     task.assignees.forEach(assigneeStr => {
-      // 割り当て文字列がID（例: u1）か名前（例: 山田）かを判定し、常に「表示用の名前」へ統合する
       const displayName = resolveAssigneeName(assigneeStr, users);
       assigneeMap[displayName] = (assigneeMap[displayName] || 0) + 1;
     });
@@ -50,7 +39,6 @@ export const ProgressChart: React.FC<ProgressChartProps> = ({ tasks, users }) =>
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 md:gap-6">
       
-      {/* ＝ 左側：ステータス配分（積層バー） ＝ */}
       <div className="bg-card border border-border-card rounded-xl p-5 md:p-6 shadow-xs flex flex-col justify-between">
         <div>
           <h3 className="text-xs font-bold text-text-sub uppercase tracking-widest mb-5 flex items-center gap-2">
@@ -61,7 +49,6 @@ export const ProgressChart: React.FC<ProgressChartProps> = ({ tasks, users }) =>
             タスク配分
           </h3>
 
-          {/* ピクセルバランスを整えた美しいシームレス積層バー */}
           <div className="h-2.5 w-full rounded-full overflow-hidden flex bg-surface border border-border-card/30 mb-6">
             <div style={{ width: `${getPct(counts.todo)}%` }} className="bg-text-sub/20 transition-all duration-300" />
             <div style={{ width: `${getPct(counts.doing)}%` }} className="bg-accent transition-all duration-300" />
@@ -70,7 +57,6 @@ export const ProgressChart: React.FC<ProgressChartProps> = ({ tasks, users }) =>
           </div>
         </div>
 
-        {/* 凡例および数値・単位の完璧なマージン整列 */}
         <div className="space-y-3">
           {[
             { label: '未着手', count: counts.todo, color: 'bg-text-sub/20' },
@@ -93,7 +79,6 @@ export const ProgressChart: React.FC<ProgressChartProps> = ({ tasks, users }) =>
         </div>
       </div>
 
-      {/* ＝ 右側：メンバーごとの負荷状況 ＝ */}
       <div className="bg-card border border-border-card rounded-xl p-5 md:p-6 shadow-xs flex flex-col justify-between">
         <div>
           <h3 className="text-xs font-bold text-text-sub uppercase tracking-widest mb-5 flex items-center gap-2">
@@ -104,7 +89,6 @@ export const ProgressChart: React.FC<ProgressChartProps> = ({ tasks, users }) =>
           </h3>
         </div>
 
-        {/* メンバー負荷をインジケーターバーで美しく均等整列 */}
         <div className="space-y-4 max-h-[190px] overflow-y-auto pr-1">
           {Object.entries(assigneeMap).map(([name, count]) => {
             const maxTasks = Math.max(...Object.values(assigneeMap), 1);

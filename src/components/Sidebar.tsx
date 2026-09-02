@@ -1,29 +1,8 @@
 /**
  * src/components/Sidebar.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   画面左側のナビゲーションメニュー（開閉可能）。ロゴ／メニュー項目／
- *   ログアウトボタン・設定ボタンを表示するだけの見た目主体のコンポーネントで、
- *   状態は一切保持しない（表示中ビュー・開閉状態・プロジェクトアコーディオンの
- *   開閉状態もApp.tsxからProps経由。規約①のSingle Source of Truthに合わせ、
- *   他のUIトグル（isSidebarOpen等）と同様にApp.tsx側で一元管理する）。
- *
- * 【主な処理】
- *   1. menuItems配列を定義し、選択中(currentView)に応じてハイライト表示
- *   2. isOpen（開閉状態）に応じて、幅・ラベル表示・アイコンレイアウトを切替
- *   3. ログアウトボタン押下でonLogoutを呼び出す（実処理はApp.tsx側）
- *   4. 設定ボタン押下でonOpenSettingsを呼び出す（App.tsx側で currentView を 'settings' に
- *      切り替え、設定ページへ遷移する。ヘッダーのアバター横にある設定ボタンと同じ
- *      ページへ遷移する、2つ目の入り口）。currentView==='settings' のときは選択中と
- *      同じ見た目でハイライト表示する
- *   5. 「プロジェクト管理」項目だけは他と挙動が異なる（プロジェクト管理機能_要件定義書.md
- *      §2.1）。他の項目のように別画面へ即座に遷移するのではなく、クリックで
- *      その場でアコーディオン開閉し、「＋新規プロジェクト」（一番上に固定）→参加中
- *      プロジェクトの一覧・選択（件数が増えてもmax-h+overflow-y-autoでスクロールに
- *      収まる。ユーザー要望：2026-08-29）→「すべて管理→」の順で表示する。ただし
- *      サイドバーが折りたたみ状態（アイコンのみ）のときは展開表示するスペースが無いため、
- *      クリックで直接プロジェクト管理ページ（currentView='project'）へ遷移する簡易挙動にする
- * -----------------------------------------------------------------------
+ * 画面左側のナビゲーションメニュー（開閉可能）。状態は一切持たず、表示中ビュー・開閉状態は
+ * すべてApp.tsxからPropsで受け取る（規約①）。「プロジェクト管理」項目だけはクリックで
+ * その場でアコーディオン開閉し、折りたたみ時のみ直接ページ遷移する特別扱いになっている。
  */
 import { APP_VERSION } from '../constants/app';
 import type { Project } from '../types/task';
@@ -35,13 +14,13 @@ interface SidebarProps {
   onToggle: () => void;
   onLogout: () => void;
   onOpenSettings: () => void;
-  // 追加：プロジェクト管理のアコーディオン（要件定義書§2.1）
+  // プロジェクト管理のアコーディオン（要件定義書§2.1）
   projects: Project[];
   currentProjectId: string | null;
   onSelectProject: (id: string) => void;
   isProjectMenuOpen: boolean;
   onToggleProjectMenu: () => void;
-  // 追加（ステップ4）：アコーディオン内の「＋新規プロジェクト」から作成モーダルを直接開く
+  // アコーディオン内の「＋新規プロジェクト」から作成モーダルを直接開く
   onCreateProject: () => void;
 }
 
@@ -89,7 +68,6 @@ export default function Sidebar({
       )
     },
     {
-      // ユーザー要望（2026-08-29）：メニュー内での並び順を一番下（タスク一覧の下）に変更
       id: 'project',
       label: 'プロジェクト管理',
       icon: (
@@ -107,7 +85,6 @@ export default function Sidebar({
       }`}
     >
       <div>
-        {/* ロゴエリア */}
         <div className="p-4 border-b border-border-card">
           <button
             onClick={onToggle}
@@ -130,11 +107,9 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* 高級ラインアイコンメニュー */}
         <nav className="p-4 space-y-1.5">
           {menuItems.map((item) => {
-            // 「プロジェクト管理」だけは特別扱い：クリックで別画面へ遷移せず、
-            // その場でアコーディオン開閉する（サイドバー折りたたみ時のみ直接遷移。上記コメント参照）
+            // 折りたたみ時（isOpen=false）のみ直接遷移。展開時はアコーディオン開閉のみ
             if (item.id === 'project') {
               const isExpanded = isOpen && isProjectMenuOpen;
               const isActive = currentView === item.id || isExpanded;
@@ -160,7 +135,6 @@ export default function Sidebar({
                     {isOpen && (
                       <>
                         <span className="flex-1 text-left overflow-hidden whitespace-nowrap font-semibold">{item.label}</span>
-                        {/* 開閉状態を示すシェブロン（開いている間は180度回転） */}
                         <svg
                           className={`w-3.5 h-3.5 flex-shrink-0 transition-transform duration-200 ${isProjectMenuOpen ? 'rotate-180' : ''}`}
                           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
@@ -171,14 +145,10 @@ export default function Sidebar({
                     )}
                   </button>
 
-                  {/* 展開時：参加中プロジェクトの一覧（アーカイブ済みはデフォルト非表示。§2.2）＋
-                      新規作成・一括管理ページへの導線。「＋新規プロジェクト」は作成モーダルを
-                      直接開き（onCreateProject）、「すべて管理→」は一覧性・管理操作用の
+                  {/* 参加中プロジェクト一覧（アーカイブ済みは非表示。§2.2）。「すべて管理→」は
                       プロジェクト管理ページ（currentView='project'）へ遷移する（§2.3） */}
                   {isExpanded && (
                     <div className="mt-1 ml-9 pl-3 border-l border-border-card space-y-0.5 animate-fade-in">
-                      {/* 「＋新規プロジェクト」は一覧の前（一番上）に固定表示し、プロジェクト数が
-                          増えても迷わずすぐ押せるようにする（ユーザー要望：2026-08-29） */}
                       <button
                         onClick={onCreateProject}
                         className="w-full px-2 py-1.5 rounded-lg text-[11px] font-semibold text-text-sub hover:text-text-main hover:bg-surface transition-colors cursor-pointer text-left"
@@ -186,8 +156,7 @@ export default function Sidebar({
                         ＋ 新規プロジェクト
                       </button>
 
-                      {/* プロジェクト一覧はmax-hで高さを頭打ちにし、それを超える分はスクロールさせる
-                          （件数が増えてもアコーディオン自体が際限なく伸びないように。同上要望） */}
+                      {/* max-hで高さを頭打ちにし、件数が増えてもアコーディオン自体が際限なく伸びないようにする */}
                       <div className="max-h-40 overflow-y-auto space-y-0.5 pr-1">
                         {visibleProjects.length === 0 ? (
                           <p className="px-2 py-1.5 text-[10px] text-text-sub font-medium">参加中のプロジェクトはありません</p>
@@ -243,9 +212,7 @@ export default function Sidebar({
         </nav>
       </div>
 
-      {/* フッターエリア：ログアウトボタン＋設定ボタンを内蔵。
-          展開時は横並び（ログアウトが幅可変、設定はアイコンのみの正方形）、
-          折りたたみ時は幅が足りないため縦並びにする */}
+      {/* 展開時は横並び、折りたたみ時は幅が足りないため縦並びにする */}
       <div className="p-4 border-t border-border-card flex flex-col gap-3">
         <div className={`flex gap-2 ${isOpen ? 'flex-row' : 'flex-col'}`}>
           <button

@@ -1,27 +1,12 @@
 /**
  * src/utils/assignee.ts
- * -----------------------------------------------------------------------
- * 【役割】
- *   担当者（assignee）まわりの処理を集約した共通ユーティリティ。
- *   DashboardView / KanbanBoard / ScheduleView に重複していたロジックを
- *   一本化したもの。
- *
- * 【主な処理】
- *   1. resolveAssigneeName … 担当者ID/名前 → 表示名の解決
- *   2. filterTasks         … グローバル操作フィルターバー（担当者・カテゴリ・
- *      優先度）に基づくタスク絞り込み。2026-08-22に優先度フィルターを追加した際、
- *      それまでの`filterTasksByUserAndCategory`という名前が実態と合わなくなった
- *      ため`filterTasks`に改名した（担当者・カテゴリの2軸だけの絞り込み関数
- *      ではなくなったため）
- * -----------------------------------------------------------------------
+ * 担当者（assignee）まわりの処理を集約した共通ユーティリティ。DashboardView /
+ * KanbanBoard / ScheduleViewに重複していたロジックを一本化したもの。
  */
 import type { Task, User } from '../types/task';
 
 /**
- * 担当者の参照文字列（User.id または User.name のいずれか）から、
- * 画面表示用の名前を解決する。
- * 元々 GanttChart.getAssigneeNames と ProgressChart の集計ループに
- * ほぼ同一のロジックが重複していたため共通化。
+ * 担当者の参照文字列（User.idまたはUser.name）から、画面表示用の名前を解決する。
  */
 export function resolveAssigneeName(assigneeRef: string, users: User[]): string {
   const found = users.find((u) => u.id === assigneeRef || u.name === assigneeRef);
@@ -30,13 +15,8 @@ export function resolveAssigneeName(assigneeRef: string, users: User[]): string 
 
 /**
  * グローバル操作フィルターバー（担当者・カテゴリ・優先度）に基づくタスク絞り込み。
- * 元々 DashboardView と KanbanBoard の useMemo 内に完全に同一のロジックが
- * 重複していたため共通化。
- * ※ 過去データ形式（assignees に ID ではなく名前文字列が入っているケース）への
- *   後方互換フォールバックも既存仕様のまま維持。
- * ※ task.assignees が無い（不正データ等の）場合の早期returnは、従来
- *   filterUserの一致だけで判定していた挙動をそのまま維持している
- *   （filterCategory・filterPriorityはこの分岐では見ない）。
+ * 過去データ形式（assigneesにIDではなく名前文字列が入っているケース）への後方互換
+ * フォールバックも維持している。
  */
 export function filterTasks(
   tasks: Task[],

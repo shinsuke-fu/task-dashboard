@@ -1,44 +1,8 @@
 /**
  * src/components/settings/SettingsView.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   「設定」ページ本体。ダッシュボード／タスクボード／スケジュールと同じ、
- *   独立した1画面として表示する（一面集約型SPAのcurrentView='settings'に
- *   対応するビュー）。ヘッダーのアバター横と、サイドバー下部のログアウト横、
- *   2箇所の⚙️ボタンから、どちらもcurrentViewを'settings'に切り替えることで
- *   このページが表示される（2つの入り口から同じページへ遷移する設計）。
- *
- *   以前はモーダル（旧SettingsModal.tsx）として実装していたが、④の
- *   バックエンド導入後にプロフィール編集・パスワード変更等の項目が増える
- *   見込みのため、他の画面と同じ「一面表示」に作り替えた
- *   （旧SettingsModal.tsxは現在どこからも参照されておらず削除候補。
- *   中身はこのファイルに移設済み）。
- *
- *   2026-08-25：項目が増えて縦スクロールが長くなってきたため、カテゴリタブ
- *   （プロフィール／テーマ／通知／データ／アプリについて）で出し分ける構成に変更。
- *   タブの選択状態はこのコンポーネント内だけのローカルstate（設定ページを
- *   開き直すたびに「プロフィール」タブへ戻る。永続化は不要と判断）。
- *   あわせて、`max-w-2xl`だけでは中央寄せされず（ウルトラワイド等の広い画面で
- *   左に寄って見える）不具合があったため`mx-auto`を追加している。
- *   タブ選択部分は当初`overflow-x-auto`にしていたが、常時横スクロールバーが
- *   出て見た目が気になるとのフィードバックがあり、`flex-wrap`（幅が足りない
- *   時は折り返す）に変更した。
- *
- * 【主な処理】
- *   1. プロフィール：アバター画像・表示名・パスワードの変更（実処理は
- *      ProfileSection.tsxに分離。App.tsx経由でSupabase Auth/Storage/DBを操作する）
- *   2. テーマ設定：配色テーマの切り替え（App.tsxのSSOTを直接更新）
- *   3. 通知設定：通知ベルの4種類（遅延中／当日締切／差し戻された／承認待ち）を
- *      それぞれON/OFFできる
- *   4. データ：サンプルデータへのリセット、および退会（アカウント削除。実処理は
- *      DangerZoneSection.tsxに分離）。【ステップ7】自分がオーナーかつ他にもメンバーが
- *      いるプロジェクトが1件以上残っている間は、DangerZoneSection（退会ボタン）の
- *      代わりにOwnershipHandoverSection.tsx（オーナー引き継ぎセクション）を表示し、
- *      先に新オーナーへの譲渡を済ませないと退会ボタンにたどり着けないようにする
- *      （プロジェクト管理機能_要件定義書.md §6.2）
- *   5. アプリについて：バージョン・技術スタック・主な機能・リンク等の簡易紹介
- *      （実内容はAboutSection.tsxに分離。社内共有会等で画面をそのまま見せる用途を想定）
- * -----------------------------------------------------------------------
+ * 「設定」ページ本体。ヘッダー・サイドバーどちらの⚙️ボタンからもcurrentView='settings'
+ * に切り替えて表示する一画面。プロフィール／テーマ／通知／データ／アプリについての
+ * カテゴリタブで出し分け、各タブの実処理は専用コンポーネント（ProfileSection等）に分離する。
  */
 import React, { useState } from 'react';
 import type { AppTheme, NotificationType, Project, User } from '../../types/task';
@@ -60,8 +24,8 @@ interface SettingsViewProps {
   onToggleNotification: (type: NotificationType) => void;
   onResetSampleData: () => void;
   onDeleteAccount: (password: string) => Promise<string | null>;
-  // 【ステップ7：オーナー引き継ぎ】自分がオーナーかつ他にもメンバーがいるプロジェクト
-  // （App.tsx側で絞り込み済み）。0件の間は通常通りDangerZoneSectionを表示する
+  // 自分がオーナーかつ他にもメンバーがいるプロジェクト（App.tsx側で絞り込み済み）。
+  // 0件の間は通常通りDangerZoneSectionを表示する
   projectsNeedingOwnershipHandover: Project[];
   projectMembers: Record<string, { userId: string; role: string }[]>;
   users: User[];
@@ -69,7 +33,6 @@ interface SettingsViewProps {
   onTransferOwnershipForRetirement: (projectId: string, newOwnerId: string) => Promise<string | null>;
 }
 
-// 設定ページのカテゴリタブ
 type SettingsTab = 'profile' | 'theme' | 'notifications' | 'data' | 'about';
 
 const TABS: { id: SettingsTab; label: string }[] = [
@@ -80,7 +43,6 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'about', label: 'アプリについて' },
 ];
 
-// 通知設定セクションに表示する4種類のラベル・説明文
 const NOTIFICATION_OPTIONS: { type: NotificationType; label: string; description: string }[] = [
   { type: 'overdue', label: '遅延中', description: '自分が担当者のタスクの期日が過ぎたとき' },
   { type: 'dueToday', label: '当日締切', description: '自分が担当者のタスクの期日が今日のとき' },
@@ -113,8 +75,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     <div className="max-w-2xl mx-auto space-y-6">
       <h2 className="text-sm font-black tracking-widest uppercase text-text-main">設定</h2>
 
-      {/* カテゴリタブ：幅が足りない画面では横スクロールではなく折り返す
-          （overflow-x-autoだと常時横スクロールバーが表示されて見た目が悪かったため） */}
+      {/* 幅が足りない画面では横スクロールでなく折り返す（overflow-x-autoは常時スクロールバーが出るため） */}
       <div className="flex flex-wrap items-center gap-1 border-b border-border-card">
         {TABS.map((tab) => (
           <button
@@ -132,7 +93,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         ))}
       </div>
 
-      {/* プロフィール */}
       {activeTab === 'profile' && (
         <ProfileSection
           displayName={displayName}
@@ -143,7 +103,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         />
       )}
 
-      {/* テーマ設定 */}
       {activeTab === 'theme' && (
         <div className="bg-card border border-border-card rounded-xl p-5 md:p-6 shadow-xs">
           <label className="block text-[10px] font-black text-text-sub uppercase mb-3">配色テーマ</label>
@@ -166,7 +125,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       )}
 
-      {/* 通知設定 */}
       {activeTab === 'notifications' && (
         <div className="bg-card border border-border-card rounded-xl p-5 md:p-6 shadow-xs">
           <label className="block text-[10px] font-black text-text-sub uppercase mb-3">通知ベル</label>
@@ -192,7 +150,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       )}
 
-      {/* データ（サンプルデータのリセット＋退会） */}
       {activeTab === 'data' && (
         <div>
           <div className="bg-card border border-border-card rounded-xl p-5 md:p-6 shadow-xs">
@@ -223,7 +180,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       )}
 
-      {/* アプリについて */}
       {activeTab === 'about' && <AboutSection />}
     </div>
   );

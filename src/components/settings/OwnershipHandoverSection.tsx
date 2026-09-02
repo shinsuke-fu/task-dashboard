@@ -1,27 +1,8 @@
 /**
  * src/components/settings/OwnershipHandoverSection.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   【ステップ7：退会フローへのオーナー引き継ぎ組み込み】設定画面の「データ」タブで、
- *   自分がオーナーかつ他にもメンバーがいるプロジェクトが1件以上ある間、通常の
- *   退会ボタン（DangerZoneSection）の代わりに表示するセクション。
- *   退会（delete_own_account()）は「自分1人だけがオーナーのプロジェクト」は
- *   タスクごとまとめて削除するが、他にメンバーがいるオーナープロジェクトは
- *   巻き込まないため、退会前に必ず新しいオーナーへ譲渡してもらう必要がある
- *   （プロジェクト管理機能_要件定義書.md §6.2）。
- *
- *   プロジェクトごとに新オーナーを選ぶプルダウンを並べる構成は、要件定義書が
- *   例示する「担当者・確認者選択と同じUI」に合わせている（TaskForm.tsxの
- *   確認者ドロップダウンと同様、自分以外のメンバーだけを選択肢にする）。
- *
- * 【自動的に退会ボタンへ切り替わる仕組みについて】
- *   このコンポーネント自身は「表示すべきプロジェクトが無くなったら閉じる」といった
- *   状態を持たない。呼び出し元のApp.tsxが、projectMembers（Supabaseの最新データ）
- *   から都度「オーナーかつ他にメンバーがいるプロジェクト」を再計算しており、
- *   譲渡が成功してprojectMembersが更新されるたびにこのリストが自動的に短くなる。
- *   0件になった瞬間、SettingsView.tsx側の条件分岐が自動的にDangerZoneSectionへ
- *   切り替える（このコンポーネント側で明示的な「次へ」操作は不要）。
- * -----------------------------------------------------------------------
+ * 退会前のオーナー引き継ぎセクション。自分がオーナーかつ他にもメンバーがいる
+ * プロジェクトが1件以上ある間、SettingsView.tsx側の分岐でDangerZoneSectionの
+ * 代わりに表示される。プロジェクトごとに新オーナー（自分以外のメンバー）を選んで譲渡する。
  */
 import React, { useState } from 'react';
 import type { Project, User } from '../../types/task';
@@ -65,8 +46,7 @@ export const OwnershipHandoverSection: React.FC<OwnershipHandoverSectionProps> =
     if (error) {
       setErrors((prev) => ({ ...prev, [project.id]: error }));
     }
-    // 成功時：projectMembersがApp.tsx側で更新され、このプロジェクトは
-    // projects（親から渡される絞り込み済みリスト）から自動的に外れる
+    // 成功時：projectMembersの更新で、このprojectはprojects（絞り込み済みリスト）から自動的に外れる
   };
 
   return (

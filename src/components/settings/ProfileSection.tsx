@@ -1,21 +1,7 @@
 /**
  * src/components/settings/ProfileSection.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   設定ページ（SettingsView.tsx）の最上部に表示する「プロフィール」セクション。
- *   アバター画像・表示名・パスワードという、3つの独立した非同期処理
- *   （それぞれ保存中/成功/失敗の状態を持つ）をまとめて扱うため、
- *   SettingsView.tsxから切り出した専用コンポーネントにしている。
- *
- * 【主な処理】
- *   1. アバター画像：ファイル選択→即アップロード。画像ファイルかどうか・
- *      サイズ（2MBまで）をアップロード前にフロント側でチェックする
- *   2. 表示名：入力欄を編集し「保存」ボタンで確定。未入力・変更なしの場合は
- *      ボタンをdisabledにする
- *   3. パスワード変更：現在のパスワード／新しいパスワード／確認の3つを入力。
- *      新しいパスワードが6文字未満、または確認と不一致の場合はフロント側で弾く。
- *      現在のパスワードが正しいかどうかはApp.tsx側（Supabase再サインイン）で検証される
- * -----------------------------------------------------------------------
+ * 設定ページ最上部の「プロフィール」セクション。アバター画像・表示名・パスワードという
+ * 3つの独立した非同期処理（それぞれ保存中/成功/失敗の状態を持つ）をまとめて扱う。
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { ImageLightbox } from '../ImageLightbox';
@@ -39,7 +25,6 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- 表示名 ---
   const [nameInput, setNameInput] = useState(displayName);
   const [nameSaving, setNameSaving] = useState(false);
   const [nameMessage, setNameMessage] = useState<string | null>(null);
@@ -59,10 +44,8 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
     }
   };
 
-  // --- アバター画像 ---
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
-  // アバター画像クリック時の原寸表示（ImageLightbox）の開閉状態
   const [isAvatarPreviewOpen, setIsAvatarPreviewOpen] = useState(false);
 
   const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -91,7 +74,6 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
     }
   };
 
-  // --- パスワード変更 ---
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
@@ -129,15 +111,9 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
     <div className="bg-card border border-border-card rounded-xl p-5 md:p-6 shadow-xs space-y-6">
       <label className="block text-[10px] font-black text-text-sub uppercase">プロフィール</label>
 
-      {/* アバター画像 */}
       <div className="flex items-center gap-4">
-        {/* w-14 h-14（56px）の正円で固定。<img>にもコンテナと全く同じw-14/h-14を指定しているのは、
-            flexコンテナ内で`w-full h-full`のように親依存のサイズ指定にすると、画像の実サイズ
-            （特に大きな写真）によってこの要素の自動最小サイズが押し上げられ、正円が崩れて
-            巨大化する不具合（Safari等で顕著）があったため。ピクセル固定サイズにすることで
-            画像の実サイズに一切左右されないようにしている。画像が設定されている場合のみ
-            クリック可能にし、ImageLightboxで原寸表示する（X/Instagramのプロフィール画像
-            タップと同じ挙動のイメージ） */}
+        {/* コンテナと<img>両方にw-14/h-14を固定指定。親依存のサイズだと画像の実サイズで
+            正円が崩れる不具合（Safari等）があるため、px固定にして左右されないようにしている */}
         <button
           type="button"
           onClick={() => { if (avatarUrl) setIsAvatarPreviewOpen(true); }}
@@ -172,7 +148,6 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
         </div>
       </div>
 
-      {/* 表示名 */}
       <div>
         <label className="block text-[10px] font-black text-text-sub uppercase mb-1.5">表示名</label>
         <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
@@ -195,7 +170,6 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
         {nameMessage && <p className="text-[10px] text-text-sub mt-1.5">{nameMessage}</p>}
       </div>
 
-      {/* パスワード変更 */}
       <div>
         <label className="block text-[10px] font-black text-text-sub uppercase mb-1.5">パスワードの変更</label>
         <div className="space-y-2 max-w-xs">

@@ -1,42 +1,12 @@
 /**
  * src/components/TaskForm.tsx
- * -----------------------------------------------------------------------
- * 【役割】
- *   タスクの新規作成・編集を行うモーダルフォーム。isOpen=trueの間だけ
- *   描画され、editingTaskの有無で「新規作成」「編集」の両モードを兼ねる。
- *
- * 【主な処理】
- *   1. isOpenがtrueになった瞬間にフォーム項目を初期化（新規 or 編集内容）
- *   2. 作業担当者・確認者は、検索付きコンボボックス（UserPicker.tsx）で選択する
- *      （担当者は複数選択可・最低1人必須、確認者は単一選択。2026-09-02、
- *      feature/assignee-reviewer-picker。人数が増えるとチェックボックス列挙・
- *      ネイティブ<select>では選びにくいという指摘を受けて置き換えた）
- *   3. 確認者（レビュアー）は、作業担当者に選ばれていないユーザーの中から選択
- *   4. サブタスク（チェックリスト）の追加・チェック切替・削除を管理する
- *      （承認フローには関与しない、担当者向けの簡易メモという位置づけ）
- *   5. 送信時にonAddTaskを呼び出し、実際の保存処理はApp.tsx側に委譲
- *
- * 【Supabase移行後の変更】
- *   ・currentUserId はApp.tsx側（Supabaseの認証セッション）からpropとして
- *     受け取る形に変更。このコンポーネント内でのハードコードは廃止した。
- *   ・担当者・確認者のデータはSupabase（task_assignees / tasksテーブル）に
- *     保存され、他ユーザーとも共有される。
- *
- * 【ステップ6：プロジェクト移動欄（プロジェクト管理機能_要件定義書.md §2.5）】
- *   ・作業担当者・確認者の選択候補は、常に「選択中プロジェクト」のメンバーに絞り込む
- *     （プロジェクト機能導入前は全登録ユーザーが対象だったが、プロジェクトという境界が
- *     できた以上、担当できる人もそのプロジェクトのメンバーに限定するのが自然なため）
- *   ・編集画面にのみ「プロジェクト」欄を表示し、自分が参加している他のプロジェクトへ
- *     タスクを移動できる（新規作成時は常にcurrentProjectId固定で、欄自体を出さない）
- *   ・プロジェクトを変更すると、移動先のメンバーでなくなる担当者・確認者は自動的に
- *     選択から外れる（§8.3で仮決めした「自動でクリアする」方式。全リセットではなく、
- *     メンバーでなくなった人だけを外す）
- * -----------------------------------------------------------------------
+ * タスクの新規作成・編集モーダルフォーム。editingTaskの有無で新規／編集の両モードを兼ね、
+ * 送信はonAddTaskに委譲する。担当者・確認者・プロジェクト（編集時のみ表示）の候補は、
+ * 選択中プロジェクトのメンバーに絞り込む（規約①：状態はApp.tsx側に一元化）。
  */
 import { useState, useEffect } from 'react';
 import type { Task, User, Subtask, Project } from '../types/task';
 import { getTodayJstDateString } from '../utils/date';
-import UserPicker from './UserPicker';
 
 interface ProjectMemberInfo {
   userId: string;
@@ -48,15 +18,15 @@ interface TaskFormProps {
   editingTask?: Task;
   users: User[];
   currentUserId: string;
-  // 【ステップ6】自分が参加しているプロジェクト一覧（「プロジェクト」欄の選択肢）と、
-  // プロジェクトごとのメンバー一覧（担当者・確認者の候補の絞り込みに使用）
+  // 参加しているプロジェクト一覧（「プロジェクト」欄の選択肢）とプロジェクトごとのメンバー
+  // 一覧（担当者・確認者候補の絞り込みに使用）
   projects: Project[];
   projectMembers: Record<string, ProjectMemberInfo[]>;
   // 新規作成時、タスクの所属プロジェクトは常にこれに固定する
   currentProjectId: string | null;
   onClose: () => void;
-  // createdBy（作成者）はこのフォームでは扱わない。新規作成時はApp.tsx側が
-  // 挿入時にcurrentUserIdから設定するため、ここではOmitで除外している
+  // createdBy（作成者）はこのフォームでは扱わない。App.tsx側が挿入時にcurrentUserIdから
+  // 設定するため、ここではOmitで除外している
   onAddTask: (task: Omit<Task, 'id' | 'status' | 'createdBy'>) => void;
 }
 
@@ -77,27 +47,25 @@ export default function TaskForm({
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [endDate, setEndDate] = useState('');
 
-  // 【ステップ6】タスクが属するプロジェクト。編集画面の「プロジェクト」欄でのみ変更できる
+  // タスクが属するプロジェクト。編集画面の「プロジェクト」欄でのみ変更できる
   const [selectedProjectId, setSelectedProjectId] = useState<string>(currentProjectId ?? '');
 
   // 作業担当者（複数選択可）。新規作成時は自分のみを選択した状態を初期値とする
   const [assigneeIds, setAssigneeIds] = useState<string[]>([currentUserId]);
 
-  // 確認者（レビュアー）を管理するステート（実際の初期値はisOpenの副作用でセットする。
-  // プロジェクトのメンバーに絞り込む必要があるため、初期化ロジックを下のuseEffectへ統一した）
+  // 確認者の初期値はisOpenの副作用（下のuseEffect）でまとめてセットする
   const [reviewerId, setReviewerId] = useState<string>('');
 
   // サブタスク（チェックリスト）。承認フローとは独立した、担当者向けの簡易メモ
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
-  // 新規サブタスク入力欄の値
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
 
-  // isOpen が「true になった瞬間」だけ確実に初期化し、編集中の中途半端な上書きループを徹底遮断
+  // isOpenが「trueになった瞬間」だけ初期化し、編集中の中途半端な上書きループを防ぐ
   useEffect(() => {
     if (!isOpen) return;
 
-    // 【ステップ6】このタスクが属するプロジェクト（編集時は既存の値、新規作成時は
-    // currentProjectId固定）。担当者・確認者の初期候補も、このプロジェクトのメンバーに絞る
+    // このタスクが属するプロジェクト（編集時は既存値、新規作成時はcurrentProjectId固定）。
+    // 担当者・確認者の初期候補もこのプロジェクトのメンバーに絞る
     const initialProjectId = editingTask ? editingTask.projectId : (currentProjectId ?? '');
     setSelectedProjectId(initialProjectId);
     const initialMemberIds = new Set((projectMembers[initialProjectId] ?? []).map((m) => m.userId));
@@ -118,33 +86,35 @@ export default function TaskForm({
       );
       // 既存タスクに確認者が設定されていればそれをセット（無ければプロジェクトメンバーの中から自分以外の先頭ユーザー）
       setReviewerId(editingTask.reviewerId || initialCandidates.find((u) => u.id !== currentUserId)?.id || '');
-      // 既存タスクのサブタスクをセット（無ければ空リスト）
       setSubtasks(editingTask.subtasks || []);
     } else {
       setTitle('');
       setDescription('');
       setCategory('開発');
       setPriority('medium');
-      setEndDate(getTodayJstDateString()); // 期日の初期値は「今日」（JST基準）
-      setAssigneeIds([currentUserId]); // 担当者初期値：自分のみ
-      setReviewerId(initialCandidates.find((u) => u.id !== currentUserId)?.id ?? ''); // デフォルト確認者：プロジェクトメンバーの中から自分以外の先頭ユーザー
-      setSubtasks([]); // サブタスクは空から開始
+      setEndDate(getTodayJstDateString());
+      setAssigneeIds([currentUserId]);
+      // デフォルト確認者：プロジェクトメンバーの中から自分以外の先頭ユーザー
+      setReviewerId(initialCandidates.find((u) => u.id !== currentUserId)?.id ?? '');
+      setSubtasks([]);
     }
-    setNewSubtaskTitle(''); // 入力欄は常にリセット
+    setNewSubtaskTitle('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]); // 依存配列を isOpen のみに絞ることで、送信時の逆流リセットバグを完全消滅させます（currentUserId/users/projects/projectMembers/currentProjectIdは意図的に含めない）
+  }, [isOpen]); // 依存配列はisOpenのみに絞る（他の値の変化で誤って再初期化されるのを防ぐため）
 
-  // UserPicker.tsx（検索付きコンボボックス）からの選択変更を受け取る。
-  // 担当者は最低1人必須のため、0人にしようとする変更は無視する
-  // （UserPicker自体は汎用部品としてこの業務ルールを持たないため、ここで担保する）
-  const handleAssigneeChange = (ids: string[]) => {
-    if (ids.length === 0) return;
-    setAssigneeIds(ids);
+  // 担当者は最低1人必須のため、残り1人の状態からの解除操作は無視する
+  const handleToggleAssignee = (userId: string) => {
+    setAssigneeIds(prev => {
+      if (prev.includes(userId)) {
+        if (prev.length === 1) return prev;
+        return prev.filter(id => id !== userId);
+      }
+      return [...prev, userId];
+    });
   };
 
-  // 【ステップ6】プロジェクト移動欄（編集時のみ表示）の変更処理。移動先プロジェクトの
-  // メンバーでなくなる担当者・確認者は自動的に選択から外す（§8.3・全リセットではなく
-  // メンバーでなくなった人だけを外す方式）
+  // 移動先プロジェクトのメンバーでなくなる担当者・確認者は自動的に選択から外す（§8.3。
+  // 全リセットではなく、メンバーでなくなった人だけを外す）
   const handleProjectChange = (newProjectId: string) => {
     setSelectedProjectId(newProjectId);
     const newMemberIds = new Set((projectMembers[newProjectId] ?? []).map((m) => m.userId));
@@ -152,7 +122,6 @@ export default function TaskForm({
     setReviewerId((prev) => (newMemberIds.has(prev) ? prev : ''));
   };
 
-  // サブタスクを1件追加する（入力欄が空・空白のみの場合は何もしない）
   const handleAddSubtask = () => {
     // タスク名の state（title）と紛らわしいので、あえて別名にしている
     const trimmedTitle = newSubtaskTitle.trim();
@@ -161,23 +130,19 @@ export default function TaskForm({
     setNewSubtaskTitle('');
   };
 
-  // サブタスクのチェック状態を切り替える
   const handleToggleSubtask = (id: string) => {
     setSubtasks(prev => prev.map(s => (s.id === id ? { ...s, done: !s.done } : s)));
   };
 
-  // サブタスクを1件削除する
   const handleRemoveSubtask = (id: string) => {
     setSubtasks(prev => prev.filter(s => s.id !== id));
   };
 
-  // 【ステップ6】担当者・確認者の候補は、選択中プロジェクトのメンバーに絞り込む
-  // （プロジェクト機能導入前は全登録ユーザーが対象だったが、§2.5対応にあわせて変更）
+  // 担当者・確認者の候補は選択中プロジェクトのメンバーに絞り込む
   const projectMemberIds = new Set((projectMembers[selectedProjectId] ?? []).map((m) => m.userId));
   const assigneeCandidates = users.filter((u) => projectMemberIds.has(u.id));
 
-  // 確認者（レビュアー）が、直後に自分自身が担当者として選ばれてしまった場合に
-  // 「担当者＝確認者」という矛盾状態にならないよう、選べる候補から自動的に外す
+  // 担当者に選ばれた人が確認者のままだと「担当者＝確認者」の矛盾状態になるため、自動的に外す
   useEffect(() => {
     if (assigneeIds.includes(reviewerId)) {
       const fallback = assigneeCandidates.find(user => !assigneeIds.includes(user.id));
@@ -188,11 +153,8 @@ export default function TaskForm({
 
   if (!isOpen) return null;
 
-  // 担当者に選ばれていないユーザーのみを確認者（レビュアー）候補として抽出
-  // （自分で自分の作業を承認できてしまう状態を防ぐため）
-  // 既知の制約：プロジェクトの全メンバーを担当者に選んだ場合、確認者の候補が0人になる。
-  // メンバー数が少ないうちは起こり得るため、将来的には候補ゼロを防ぐ
-  // 制御（例：最低1人は担当者から除外させる等）を検討する想定。
+  // 担当者に選ばれていないユーザーのみを確認者候補にする（自己承認を防ぐため）。全メンバーを
+  // 担当者に選ぶと確認者候補が0人になる既知の制約がある
   const reviewerCandidates = assigneeCandidates.filter(user => !assigneeIds.includes(user.id));
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -201,7 +163,6 @@ export default function TaskForm({
     if (assigneeIds.length === 0) return; // 担当者は最低1人必須（通常はUI側で常に保証済み）
     if (!selectedProjectId) return; // プロジェクト未選択では保存させない（新規作成時のガードはApp.tsx側のalertで別途表示済み）
 
-    // 親の型定義(string等)に安全に適合させ、最新の値を確実に最優先で送信
     onAddTask({
       title: title.trim(),
       description: description.trim() ? description.trim() : undefined,
@@ -209,10 +170,10 @@ export default function TaskForm({
       priority: priority,
       startDate: editingTask?.startDate ? editingTask.startDate : getTodayJstDateString(), // 新規作成時は今日を開始日にする
       endDate: endDate,
-      assignees: assigneeIds,  // チェックボックスで選択された担当者ID配列をそのまま送信
-      reviewerId: reviewerId,  // 選択した確認者（レビュアー）のIDを直通バインド
-      subtasks: subtasks,      // サブタスク（チェックリスト）をそのまま送信
-      projectId: selectedProjectId, // 【ステップ6】所属プロジェクト（編集時は「プロジェクト」欄の選択値）
+      assignees: assigneeIds,
+      reviewerId: reviewerId,
+      subtasks: subtasks,
+      projectId: selectedProjectId,
     });
   };
 
@@ -220,7 +181,6 @@ export default function TaskForm({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
       <form onSubmit={handleSubmit} className="w-full max-w-lg bg-card border border-border-card rounded-2xl p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
         
-        {/* ヘッダー */}
         <div className="flex items-center justify-between pb-2 border-b border-border-card/40">
           <h3 className="font-extrabold text-xs tracking-wider text-text-main">
             {editingTask ? 'タスクの編集' : '新しいタスクの追加'}
@@ -228,7 +188,6 @@ export default function TaskForm({
         </div>
 
         <div className="space-y-4 text-xs">
-          {/* タスク名入力 */}
           <div>
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">タスク名</label>
             <input 
@@ -241,7 +200,6 @@ export default function TaskForm({
             />
           </div>
 
-          {/* 詳細説明入力 */}
           <div>
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">詳細説明</label>
             <textarea 
@@ -253,8 +211,8 @@ export default function TaskForm({
             />
           </div>
 
-          {/* 【ステップ6】プロジェクト移動欄：編集時のみ表示（新規作成時は常にcurrentProjectId固定）。
-              §2.5・要件定義書。移動先のメンバーでなくなる担当者・確認者は自動的に選択から外れる */}
+          {/* 編集時のみ表示（新規作成時は常にcurrentProjectId固定）。移動先のメンバーでなくなる
+              担当者・確認者は自動的に選択から外れる（§2.5） */}
           {editingTask && (
             <div>
               <label className="block text-[10px] font-black text-text-sub uppercase mb-1">プロジェクト</label>
@@ -281,10 +239,9 @@ export default function TaskForm({
             {subtasks.length > 0 && (
               <div className="space-y-1.5 mb-2">
                 {subtasks.map((sub) => (
-                  // 行全体をクリックしてもチェックを切り替えられるようにする（チェックボックス自体への
-                  // クリックはネイティブのonChangeと二重発火してしまうため、行のonClickでは
-                  // input[type=checkbox]上でのクリックだけ除外する）。削除ボタンはstopPropagationで
-                  // 行のトグルに巻き込まれないようにする
+                  // 行クリックでもチェック切替できるようにする（checkbox自体はonChangeと二重発火
+                  // するため、input要素上のクリックだけ除外する）。削除ボタンはstopPropagationで
+                  // 巻き込まれないようにする
                   <div
                     key={sub.id}
                     onClick={(e) => {
@@ -345,19 +302,33 @@ export default function TaskForm({
             </p>
           </div>
 
-          {/* 作業担当者（複数選択可）：検索しながら選べるコンボボックス（UserPicker.tsx） */}
           <div>
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">
               作業担当者（複数選択可）
             </label>
-            <UserPicker
-              mode="multi"
-              users={assigneeCandidates}
-              value={assigneeIds}
-              onChange={handleAssigneeChange}
-              placeholder="担当者を検索..."
-              emptyMessage="追加できる候補がいません"
-            />
+            <div className="flex flex-wrap gap-2">
+              {assigneeCandidates.map(user => {
+                const isSelected = assigneeIds.includes(user.id);
+                return (
+                  <label
+                    key={user.id}
+                    className={`flex items-center gap-1.5 h-8 px-3 rounded-xl border text-[11px] font-bold cursor-pointer transition select-none ${
+                      isSelected
+                        ? 'bg-accent/10 border-accent/40 text-accent'
+                        : 'bg-base border-border-card text-text-sub hover:text-text-main'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => handleToggleAssignee(user.id)}
+                      className="w-3 h-3 accent-current cursor-pointer"
+                    />
+                    {user.name}
+                  </label>
+                );
+              })}
+            </div>
             <p className="text-[10px] text-text-sub mt-1.5 pl-1 font-medium">
               ※選択できるのはこのプロジェクトのメンバーのみです。選択した担当者にはSupabase上で
               タスクが共有されます（保存時にtask_assigneesテーブルへ反映）。
@@ -369,18 +340,20 @@ export default function TaskForm({
             <label className="block text-[10px] font-black text-text-sub uppercase mb-1">
               タスクの確認者・承認者（上司・レビュアー）
             </label>
-            <UserPicker
-              mode="single"
-              users={reviewerCandidates}
-              value={reviewerId ? [reviewerId] : []}
-              onChange={(ids) => setReviewerId(ids[0] ?? '')}
-              placeholder="確認者を検索..."
-              emptyMessage="選べる候補がいません（担当者を全員選ぶと0人になります）"
-            />
+            <select
+              value={reviewerId}
+              onChange={(e) => setReviewerId(e.target.value)}
+              className="w-full h-9 bg-base border border-border-card rounded-xl px-2 font-bold text-text-main cursor-pointer"
+            >
+              {reviewerCandidates.map(user => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* メタデータ選択（カテゴリ・優先度・期日）：スマホ幅では窮屈になるため縦積みにし、
-              sm以上（640px〜）で従来通り横3列に並べる */}
+          {/* スマホ幅では窮屈になるため縦積みにし、sm以上で横3列に並べる */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-[10px] font-black text-text-sub uppercase mb-1">カテゴリ</label>
@@ -419,7 +392,6 @@ export default function TaskForm({
           </div>
         </div>
 
-        {/* 下部アクションボタン */}
         <div className="flex justify-end gap-2 pt-2 border-t border-border-card/30">
           <button type="button" onClick={onClose} className="h-9 px-4 bg-surface hover:bg-base text-text-sub font-bold text-xs rounded-xl cursor-pointer border border-border-card/50 transition">
             キャンセル

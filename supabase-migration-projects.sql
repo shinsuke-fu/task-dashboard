@@ -5,7 +5,8 @@
 -- このファイルの中身をすべて貼り付けて「Run」を押してください。
 -- supabase-schema.sql / supabase-migration-profile.sql / supabase-migration-account-deletion.sql
 -- を実行済みのプロジェクトに対する追加分です（それらを再実行する必要はありません）。
--- 対応するドキュメント：プロジェクト管理機能_要件定義書.md（§3・§6.1・§7.1、実装ステップ§9の1・2）
+-- 対応するドキュメント：docs/要件定義書_プロジェクト管理機能.md（§3・§6.1・§7.1）、
+-- docs/詳細設計書_認証DB編.md（2.7〜2.9・3.2）
 --
 -- 【内容】
 --   1. projects（プロジェクト本体）・project_members（メンバー中間テーブル）を新設
