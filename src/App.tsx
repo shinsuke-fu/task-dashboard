@@ -7,9 +7,10 @@
  * （規約②）。機能一覧はdocs/基本設計書.md§6参照。
  */
 import { useState, useEffect, useRef } from 'react';
-import type { Task, AppTheme, User, NotificationType, NotificationItem, Project, ProjectStatus } from './types/task';
+import type { Task, AppTheme, NotificationType, NotificationItem, Project, ProjectStatus } from './types/task';
 import { supabase } from './lib/supabaseClient';
 import { useAuthSession } from './hooks/useAuthSession';
+import { useUsers } from './hooks/useUsers';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/kanban/KanbanBoard';
 import TaskForm from './components/TaskForm';
@@ -227,8 +228,8 @@ export default function App() {
 
   // ---- 状態管理（App.tsx が保持する Single Source of Truth） ----
 
-  // 担当者一覧（Supabaseの`profiles`テーブルから取得）。ログインしていなければ空配列
-  const [users, setUsers] = useState<User[]>([]);
+  // 担当者一覧・自分のプロフィール更新（useUsers.tsへ切り出し済み）
+  const { users, handleUpdateDisplayName, handleUploadAvatar } = useUsers(isAuthenticated, currentUserId);
 
   // タスク一覧本体（Supabaseの`tasks`テーブル＋担当者・サブタスクの結合データから取得）
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -421,11 +422,11 @@ export default function App() {
     }
   };
 
-  // ログイン状態が変わったら、担当者一覧・参加プロジェクト一覧を取得し直す
-  // （タスク一覧は下のuseEffectで、currentProjectIdの変化も合わせて取得し直す）
+  // ログイン状態が変わったら、参加プロジェクト一覧を取得し直す（担当者一覧は
+  // useUsers.ts側の同じisAuthenticated依存のeffectで並行して取得される。
+  // タスク一覧は下のuseEffectで、currentProjectIdの変化も合わせて取得し直す）
   useEffect(() => {
     if (!isAuthenticated) {
-      setUsers([]);
       setProjects([]);
       setNotificationTasks([]);
       // ログアウトのたびにリセットし、次回ログイン時に「初回のプロジェクト一覧取得」を
@@ -435,19 +436,6 @@ export default function App() {
       return;
     }
 
-    let cancelled = false;
-    supabase
-      .from('profiles')
-      .select('id, display_name, avatar_url')
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          console.error('担当者一覧の取得に失敗しました:', error);
-          return;
-        }
-        setUsers((data ?? []).map((p) => ({ id: p.id, name: p.display_name, avatarUrl: p.avatar_url ?? undefined })));
-      });
-
     refreshProjects();
     // 担当者・確認者の候補をプロジェクトのメンバーに絞り込むため（TaskForm.tsx）、
     // 「プロジェクト管理」タブを開いていなくてもログイン時点でprojectMembersを取得しておく
@@ -455,10 +443,6 @@ export default function App() {
     // 通知ベルは選択中プロジェクトに関係なく全プロジェクト横断で必要なため、ログイン時点で
     // 取得しておく（currentProjectIdが未選択・未確定の間も通知は出したいため）
     refreshNotificationTasks();
-
-    return () => {
-      cancelled = true;
-    };
   }, [isAuthenticated]);
 
   // ゲスト（匿名）ユーザーがログイン直後のプロジェクト一覧取得完了後、0件だと確定した
@@ -965,36 +949,6 @@ export default function App() {
   // 通知ベルの種類ごとのON/OFFを切り替える（設定ページから呼ばれる）
   const handleToggleNotification = (type: NotificationType) => {
     setNotificationSettings(prev => ({ ...prev, [type]: !prev[type] }));
-  };
-
-  // 表示名を変更する（設定ページのプロフィールセクションから呼ばれる）。
-  // profiles.display_nameを更新し、担当者一覧（users）にも即座に反映する
-  // （users配列を作り直すためだけにrefreshし直すのは無駄が多いため、ローカルでも更新する）
-  const handleUpdateDisplayName = async (name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    const { error } = await supabase.from('profiles').update({ display_name: trimmed }).eq('id', currentUserId);
-    if (error) throw error;
-    setUsers(prev => prev.map(u => (u.id === currentUserId ? { ...u, name: trimmed } : u)));
-  };
-
-  // アバターアップロード。`avatars`バケットへ固定パス（upsert:trueで毎回上書き）で
-  // 保存する。同じパスだとCDNキャッシュが残るため、URL末尾にタイムスタンプを付けて
-  // キャッシュを回避する
-  const handleUploadAvatar = async (file: File) => {
-    const path = `${currentUserId}/avatar`;
-    const { error: uploadError } = await supabase.storage
-      .from('avatars')
-      .upload(path, file, { upsert: true, contentType: file.type });
-    if (uploadError) throw uploadError;
-
-    const { data } = supabase.storage.from('avatars').getPublicUrl(path);
-    const bustedUrl = `${data.publicUrl}?t=${Date.now()}`;
-
-    const { error: updateError } = await supabase.from('profiles').update({ avatar_url: bustedUrl }).eq('id', currentUserId);
-    if (updateError) throw updateError;
-
-    setUsers(prev => prev.map(u => (u.id === currentUserId ? { ...u, avatarUrl: bustedUrl } : u)));
   };
 
   // サンプルタスクへのリセット（docs/要件定義書.md§7）。複数人で共有するため「自分が
