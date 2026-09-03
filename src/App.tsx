@@ -7,10 +7,11 @@
  * （規約②）。機能一覧はdocs/基本設計書.md§6参照。
  */
 import { useState, useEffect, useRef } from 'react';
-import type { Task, AppTheme, NotificationType, NotificationItem, Project, ProjectStatus } from './types/task';
+import type { Task, NotificationType, NotificationItem, Project, ProjectStatus } from './types/task';
 import { supabase } from './lib/supabaseClient';
 import { useAuthSession } from './hooks/useAuthSession';
 import { useUsers } from './hooks/useUsers';
+import { useTheme, themeLabels } from './hooks/useTheme';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/kanban/KanbanBoard';
 import TaskForm from './components/TaskForm';
@@ -285,12 +286,9 @@ export default function App() {
   const [projectStatusFilter, setProjectStatusFilter] = useState<'all' | ProjectStatus>('all');
   const [projectSearchQuery, setProjectSearchQuery] = useState<string>('');
 
-  // 配色テーマ（12種類）。これは複数人で共有する必要のない「個人の見た目の好み」なので、
-  // 引き続きこのブラウザのlocalStorageにのみ保存する（Supabase化はしていない）。
-  // デフォルトはGRAPHITE（src/index.cssの`:root`側もGRAPHITEに合わせてある）
-  const [theme, setTheme] = useState<AppTheme>(() => {
-    return (localStorage.getItem('dashboard_theme') as AppTheme) || 'graphite-dark';
-  });
+  // 配色テーマ（useTheme.tsへ切り出し済み。スマホ幅での自動サイドバークローズは
+  // setIsSidebarOpenをコールバックとして注入する）
+  const { theme, setTheme } = useTheme(() => setIsSidebarOpen(false));
 
   // 現在表示中のビュー（'dashboard' | 'tasks' | その他）。文字列切替による一面集約型ルーティング
   const [currentView, setCurrentView] = useState<string>('dashboard');
@@ -515,17 +513,6 @@ export default function App() {
     }, 20000); // 20秒間隔（頻度を上げすぎるとAPI呼び出しが増えるため、通知用途としてはこの程度で妥協）
     return () => clearInterval(intervalId);
   }, [isAuthenticated, currentProjectId]);
-
-  // テーマ変更時：localStorageへ保存＋<html>にdata-theme属性を反映（CSS変数切替）。
-  // 併せて、スマホ幅では自動的にサイドバーを閉じる
-  useEffect(() => {
-    localStorage.setItem('dashboard_theme', theme);
-    document.documentElement.setAttribute('data-theme', theme);
-
-    if (window.innerWidth < 768) {
-      setIsSidebarOpen(false);
-    }
-  }, [theme]);
 
   // 通知メニューの「外側クリックで閉じる」処理。
   // 設定は独立したページ（currentView==='settings'）になったため、この仕組みとは無関係
@@ -998,15 +985,6 @@ export default function App() {
     await supabase.from('task_assignees').insert({ task_id: inserted.id, user_id: currentUserId });
     await refreshTasks();
     await refreshNotificationTasks(); // リセットで自分のタスクが入れ替わるため通知も更新
-  };
-
-  // テーマ切替メニューのラベル一覧。ダーク6種・ライト6種の計12種（純白は避けている）。
-  // GRAPHITEがデフォルト兼先頭（オブジェクトのプロパティ順＝表示順）
-  const themeLabels: Record<AppTheme, string> = {
-    'graphite-dark': 'GRAPHITE', 'sage-dark': 'SAGE', 'bronze-dark': 'BRONZE',
-    'ocean-dark': 'OCEAN', 'amethyst-dark': 'AMETHYST', 'lime-dark': 'LIME',
-    'cream-light': 'CREAM', 'linen-light': 'LINEN', 'mist-light': 'MIST',
-    'pearl-light': 'PEARL', 'stone-light': 'STONE', 'sand-light': 'SAND',
   };
 
   // ダッシュボード／タスクボード／スケジュールでプロジェクト未選択の間に出す案内
