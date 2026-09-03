@@ -30,7 +30,7 @@
 
 | 分類 | 使用技術 |
 |---|---|
-| フレームワーク | React 19 |
+| ライブラリ/FW | React 19 |
 | 言語 | TypeScript |
 | ビルドツール | Vite |
 | スタイリング | Tailwind CSS v4（`@theme`によるCSS変数ベースのカスタムテーマ） |
