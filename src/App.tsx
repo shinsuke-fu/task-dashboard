@@ -14,6 +14,8 @@ import { useUsers } from './hooks/useUsers';
 import { useTheme, themeLabels } from './hooks/useTheme';
 import { useViewNavigation } from './hooks/useViewNavigation';
 import { useProjects } from './hooks/useProjects';
+import { useProjectMembers } from './hooks/useProjectMembers';
+import { useTasks } from './hooks/useTasks';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/kanban/KanbanBoard';
 import TaskForm from './components/TaskForm';
@@ -40,67 +42,6 @@ const defaultNotificationSettings: Record<NotificationType, boolean> = {
   rejected: true,
   reviewRequested: true,
 };
-
-// 「サンプルデータにリセット」（設定ページ）で作り直す、たたき台のサンプルタスク
-const initialTasks: Task[] = [
-  {
-    id: '1',
-    title: 'フロント画面のコンポーネント設計',
-    description: 'フェーズ1のレイアウトとテーマ切り替えの実装。チーム運用を見据えた共通ヘッダーの構築。',
-    status: 'doing',
-    category: '開発',
-    startDate: '2026-08-01',
-    endDate: '2026-08-10',
-    priority: 'high',
-    assignees: [],
-    reviewerId: undefined,
-    createdBy: '', // このサンプルテンプレートのcreatedByは未使用（実際の挿入時はcurrentUserIdを使う）
-    projectId: '', // 同上：このサンプルテンプレートのprojectIdは未使用（実際の挿入時はcurrentProjectIdを使う。
-                    // handleResetSampleData参照。Task型がprojectIdを必須化したため、型を満たすためだけに追加）
-  },
-];
-
-// Supabaseから取得した1行分の生データの型（tasksテーブル＋結合したtask_assignees/
-// task_subtasks）。このファイル内でフロント用のTask型（src/types/task.ts）へ変換する
-interface SupabaseTaskRow {
-  id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  category: string;
-  start_date: string;
-  end_date: string;
-  priority: string;
-  reviewer_id: string | null;
-  return_reason: string | null;
-  created_by: string;
-  project_id: string;
-  task_assignees: { user_id: string }[];
-  task_subtasks: { id: string; title: string; done: boolean }[];
-}
-
-const mapRowToTask = (row: SupabaseTaskRow): Task => ({
-  id: row.id,
-  title: row.title,
-  description: row.description ?? undefined,
-  status: row.status as Task['status'],
-  category: row.category as Task['category'],
-  startDate: row.start_date,
-  endDate: row.end_date,
-  priority: row.priority as Task['priority'],
-  assignees: row.task_assignees.map((a) => a.user_id),
-  reviewerId: row.reviewer_id ?? undefined,
-  returnReason: row.return_reason ?? undefined,
-  subtasks: row.task_subtasks.map((s) => ({ id: s.id, title: s.title, done: s.done })),
-  createdBy: row.created_by,
-  projectId: row.project_id,
-});
-
-// 20秒ごとのポーリングで内容が変わっていないのにsetTasks/setNotificationTasksを
-// 呼んでしまうと、配列・オブジェクトの参照が毎回新しくなるため無駄な再レンダリングが
-// 起きる。内容が完全に同じ場合はstate更新自体をスキップするための簡易比較
-// （この規模のアプリではJSON文字列比較で十分）
-const tasksEqual = (a: Task[], b: Task[]) => JSON.stringify(a) === JSON.stringify(b);
 
 // JST基準の「今日」からの相対日数でYYYY-MM-DD文字列を作る（ポートフォリオを見る
 // タイミングに関わらず、常に「今日から見て自然な期日」のサンプルになるようにするため。
@@ -216,31 +157,25 @@ export default function App() {
   // 担当者一覧・自分のプロフィール更新（useUsers.tsへ切り出し済み）
   const { users, handleUpdateDisplayName, handleUploadAvatar } = useUsers(isAuthenticated, currentUserId);
 
-  // タスク一覧本体（Supabaseの`tasks`テーブル＋担当者・サブタスクの結合データから取得）
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [tasksLoading, setTasksLoading] = useState<boolean>(false);
-
-  // 通知ベルの判定専用に、選択中プロジェクトに絞らず「自分が参加している全プロジェクト」の
-  // タスクを保持する（docs/要件定義書.md§6）。tasks（画面表示用。currentProjectIdで
-  // 絞り込み）とは別に持つ理由は、通知ベルだけは選択中プロジェクトに関係なく
-  // 全プロジェクト横断で気づけるようにするため
-  const [notificationTasks, setNotificationTasks] = useState<Task[]>([]);
+  // プロジェクトメンバー管理・メンバー数/タスク進捗の集計（useProjectMembers.tsへ切り出し済み）。
+  // refreshProjectSummariesをuseProjects()へ注入する都合上、useProjects()より先に呼ぶ必要がある
+  const {
+    projectMembers,
+    projectTaskCounts,
+    memberModalProjectId,
+    refreshProjectSummaries,
+    handleOpenMemberModal,
+    handleCloseMemberModal,
+    handleAddMember,
+    handleRemoveMember,
+    handleTransferOwnership,
+    handleTransferOwnershipForRetirement,
+  } = useProjectMembers(users);
 
   // ゲスト（匿名）ユーザーのデモデータ自動投入が二重実行されるのを防ぐフラグ。
   // 投入処理自体はApp.tsx側のuseEffectに残置（プロジェクト・タスク・通知の3ドメインに
   // またがるため）。「初回のプロジェクト一覧取得」完了判定はuseProjects.ts側のprojectsLoadedを使う
   const guestSeedStartedRef = useRef(false);
-
-  // 各プロジェクトのメンバー一覧（user_id・role）とタスク件数・完了数。カードの
-  // 「メンバー数」「進捗％」表示に使うほか、TaskForm.tsxの担当者・確認者候補の絞り込みにも
-  // 使うため、「プロジェクト管理」タブを開いていなくてもログイン時点で取得しておく
-  // （下記useEffect参照）
-  const [projectMembers, setProjectMembers] = useState<Record<string, { userId: string; role: string }[]>>({});
-  const [projectTaskCounts, setProjectTaskCounts] = useState<Record<string, { total: number; done: number }>>({});
-
-  // メンバー管理モーダルの開閉状態。対象プロジェクトはIDだけ保持し、実体はprojectsから
-  // 都度参照する（他の編集操作と同様、削除等でprojectsが更新されても参照先がずれない）
-  const [memberModalProjectId, setMemberModalProjectId] = useState<string | null>(null);
 
   // 配色テーマ（useTheme.tsへ切り出し済み。スマホ幅での自動サイドバークローズは
   // setIsSidebarOpenをコールバックとして注入する）
@@ -280,86 +215,10 @@ export default function App() {
 
   // ---- Supabaseとのデータ同期 ----
 
-  // tasksを担当者・サブタスクごと結合して取得し直す共通関数。毎回サーバーから読み直す
-  // 方式（楽観的更新はしない）。currentProjectId未選択の間は取得しない
-  // （project_idがNOT NULL制約のため。docs/要件定義書_プロジェクト管理機能.md§1・§4）。
-  // opts.silentはポーリングからの呼び出し時に使い、ローディング表示を出さないようにする
-  const refreshTasks = async (opts?: { silent?: boolean }) => {
-    if (!currentProjectId) {
-      setTasks([]);
-      return;
-    }
-    if (!opts?.silent) setTasksLoading(true);
-    const { data, error } = await supabase
-      .from('tasks')
-      .select('*, task_assignees(user_id), task_subtasks(id, title, done)')
-      .eq('project_id', currentProjectId)
-      // created_atだけだと返却順が不安定になり、ポーリングのたびに並びが入れ替わって
-      // 見えるため、idを二次キーにして安定させる
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: true });
-    if (!opts?.silent) setTasksLoading(false);
-
-    if (error) {
-      console.error('タスクの取得に失敗しました:', error);
-      return;
-    }
-    const next = ((data ?? []) as SupabaseTaskRow[]).map(mapRowToTask);
-    setTasks((prev) => (tasksEqual(prev, next) ? prev : next));
-  };
-
-  // 通知ベル用に、project_idで絞り込まず全タスクを取得する共通関数。RLSが自動的に
-  // 参加プロジェクト分だけを返すため、クライアント側の絞り込みは不要
-  const refreshNotificationTasks = async () => {
-    const { data, error } = await supabase
-      .from('tasks')
-      .select('*, task_assignees(user_id), task_subtasks(id, title, done)')
-      // refreshTasksと同様、二次キーで並び順を確定させる
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: true });
-
-    if (error) {
-      console.error('通知用タスクの取得に失敗しました:', error);
-      return;
-    }
-    const next = ((data ?? []) as SupabaseTaskRow[]).map(mapRowToTask);
-    setNotificationTasks((prev) => (tasksEqual(prev, next) ? prev : next));
-  };
-
-  // カード表示用の「メンバー数」「タスク進捗」を取得する重めの集計クエリ。RLSにより
-  // 絞り込みは不要。タブを開いたときだけ呼び出し、ログイン直後には含めない
-  const refreshProjectSummaries = async () => {
-    const [membersResult, taskStatsResult] = await Promise.all([
-      supabase.from('project_members').select('project_id, user_id, role'),
-      supabase.from('tasks').select('project_id, status'),
-    ]);
-
-    if (membersResult.error) {
-      console.error('プロジェクトメンバーの取得に失敗しました:', membersResult.error);
-    } else {
-      const membersByProject: Record<string, { userId: string; role: string }[]> = {};
-      for (const row of membersResult.data ?? []) {
-        (membersByProject[row.project_id] ??= []).push({ userId: row.user_id, role: row.role });
-      }
-      setProjectMembers(membersByProject);
-    }
-
-    if (taskStatsResult.error) {
-      console.error('タスク集計の取得に失敗しました:', taskStatsResult.error);
-    } else {
-      const countsByProject: Record<string, { total: number; done: number }> = {};
-      for (const row of taskStatsResult.data ?? []) {
-        const entry = (countsByProject[row.project_id] ??= { total: 0, done: 0 });
-        entry.total += 1;
-        if (row.status === 'done') entry.done += 1;
-      }
-      setProjectTaskCounts(countsByProject);
-    }
-  };
-
   // プロジェクト一覧・選択・CRUD（useProjects.tsへ切り出し済み）。プロジェクト保存・削除後の
-  // refreshProjectSummaries呼び出しと、プロジェクト選択後のダッシュボードへの画面遷移
-  // （handleViewChange）はまだ別フックに切り出していないため、コールバックとして注入する
+  // refreshProjectSummaries呼び出し（useProjectMembers.tsへ切り出し済み・上で先に呼んである）と、
+  // プロジェクト選択後のダッシュボードへの画面遷移（handleViewChange）は、まだ他フックに
+  // 切り出していない・切り出し済みだが別ファイルにあるため、コールバックとして注入する
   const {
     projects,
     projectsLoaded,
@@ -383,12 +242,26 @@ export default function App() {
     handleDeleteProject,
   } = useProjects(isAuthenticated, currentUserId, handleViewChange, refreshProjectSummaries);
 
-  // ログイン状態が変わったら、通知タスク一覧を取得し直す（参加プロジェクト一覧は
-  // useProjects.ts側の、担当者一覧はuseUsers.ts側の、同じisAuthenticated依存のeffectで
-  // 並行して取得される。タスク一覧は下のuseEffectで、currentProjectIdの変化も合わせて取得し直す）
+  // タスクCRUD・通知用タスク取得・20秒ポーリング（useTasks.tsへ切り出し済み）。
+  // editingTask・setIsModalOpen・setEditingTask（タスク編集モーダルの開閉状態）はまだ
+  // 別フックに切り出していないため、状態・コールバックとして注入する
+  const {
+    tasks,
+    tasksLoading,
+    notificationTasks,
+    refreshNotificationTasks,
+    handleSaveTask,
+    handleDeleteTask,
+    handleUpdateStatus,
+    handleProcessAction,
+    handleResetSampleData,
+  } = useTasks(isAuthenticated, currentUserId, currentProjectId, users, editingTask, setIsModalOpen, setEditingTask);
+
+  // ログイン状態が変わったらリセット・プロジェクトメンバー集計を取得し直す（参加
+  // プロジェクト一覧はuseProjects.ts側の、担当者一覧はuseUsers.ts側の、通知用タスク一覧は
+  // useTasks.ts側の、同じisAuthenticated依存のeffectで並行して取得される）
   useEffect(() => {
     if (!isAuthenticated) {
-      setNotificationTasks([]);
       // ログアウトのたびにリセットし、次回ログイン時に「初回のプロジェクト一覧取得」を
       // 正しく待てるようにする
       guestSeedStartedRef.current = false;
@@ -398,14 +271,12 @@ export default function App() {
     // 担当者・確認者の候補をプロジェクトのメンバーに絞り込むため（TaskForm.tsx）、
     // 「プロジェクト管理」タブを開いていなくてもログイン時点でprojectMembersを取得しておく
     refreshProjectSummaries();
-    // 通知ベルは選択中プロジェクトに関係なく全プロジェクト横断で必要なため、ログイン時点で
-    // 取得しておく（currentProjectIdが未選択・未確定の間も通知は出したいため）
-    refreshNotificationTasks();
   }, [isAuthenticated]);
 
   // ゲスト（匿名）ユーザーがログイン直後のプロジェクト一覧取得完了後、0件だと確定した
   // 時点でデモデータを自動投入する（guestSeedStartedRefで二重実行を防ぐ。理由は
-  // seedGuestDemoData参照）。tasksは下のuseEffectが自動で取得し直すため明示呼び出し不要
+  // seedGuestDemoData参照）。tasksはuseTasks.ts側のuseEffectが自動で取得し直すため
+  // 明示呼び出し不要
   useEffect(() => {
     if (!isAuthenticated || !projectsLoaded) return;
     if (!session?.user.is_anonymous) return;
@@ -424,16 +295,6 @@ export default function App() {
     })();
   }, [isAuthenticated, projectsLoaded, session, projects.length, currentUserId]);
 
-  // ログイン状態、または選択中プロジェクトが変わるたびにタスク一覧を取得し直す
-  // （サイドバーのアコーディオンでプロジェクトを切り替えた瞬間もここで再取得される）
-  useEffect(() => {
-    if (!isAuthenticated) {
-      setTasks([]);
-      return;
-    }
-    refreshTasks();
-  }, [isAuthenticated, currentProjectId]);
-
   // タブを開いたとき（currentView==='project'）だけメンバー数・タスク進捗の集計を
   // 取得し直す（サイドバーのアコーディオンでの切り替えのみを行っている間はこのクエリを
   // 発生させない）
@@ -441,20 +302,6 @@ export default function App() {
     if (!isAuthenticated || currentView !== 'project') return;
     refreshProjectSummaries();
   }, [isAuthenticated, currentView]);
-
-  // Supabase Realtime未導入のため、他ユーザーの変更を拾う暫定策として一定間隔で
-  // ポーリングする（本格対応はTODO.md参照）。currentProjectIdを依存配列に含めるのは、
-  // クロージャが古いrefreshTasksを握ったままにならないようにするため。通知ベルは全
-  // プロジェクト横断のため同じタイマーに相乗りさせている。.order()の二次キー（id）は
-  // 返却順を安定させ、ポーリングのたびに並びが入れ替わるのを防ぐため
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    const intervalId = setInterval(() => {
-      refreshTasks({ silent: true }); // バックグラウンド更新なのでローディング表示は出さない
-      refreshNotificationTasks();
-    }, 20000); // 20秒間隔（頻度を上げすぎるとAPI呼び出しが増えるため、通知用途としてはこの程度で妥協）
-    return () => clearInterval(intervalId);
-  }, [isAuthenticated, currentProjectId]);
 
   // 通知メニューの「外側クリックで閉じる」処理。
   // 設定は独立したページ（currentView==='settings'）になったため、この仕組みとは無関係
@@ -533,132 +380,10 @@ export default function App() {
     }
   });
 
-  // ---- タスク操作ハンドラー（子コンポーネントへPropsとして配布。すべてSupabase経由の非同期処理） ----
-
-  // タスクの新規作成／編集保存。担当者・サブタスクは差分計算せず「全削除してから作り直す」
-  // 方式（docs/詳細設計書_認証DB編.md2.3）。createdByは受け取らず、新規作成時はここで
-  // currentUserIdから設定する（TaskForm.tsx側もOmitで除外）
-  const handleSaveTask = async (taskData: Omit<Task, 'id' | 'status' | 'createdBy'>) => {
-    // 新規作成時はcurrentProjectIdが必須（project_idがNOT NULL制約のため。
-    // docs/要件定義書_プロジェクト管理機能.md§3.3）。編集時はTaskForm.tsxの「プロジェクト」欄
-    // （§2.5）でtaskData.projectIdが他プロジェクトIDに変わり得るため、そのまま含める
-    if (!editingTask && !currentProjectId) {
-      alert('プロジェクトが選択されていません。サイドバーからプロジェクトを選択してください。');
-      return;
-    }
-
-    const taskRow = {
-      title: taskData.title,
-      description: taskData.description ?? null,
-      category: taskData.category,
-      start_date: taskData.startDate,
-      end_date: taskData.endDate,
-      priority: taskData.priority,
-      // reviewerIdは「候補者がいない」場合にTaskForm側で空文字列('')になり得る。
-      // ''のままだとuuid列への挿入時にPostgres側で「invalid input syntax for type uuid」エラー
-      // （PostgREST経由では400として現れる）になるため、''もnullとして扱う（??ではなく||を使う理由）
-      reviewer_id: taskData.reviewerId || null,
-      return_reason: taskData.returnReason ?? null,
-      // 新規作成時は下のinsertで必ずcurrentProjectIdへ上書きされる（TaskForm側の初期値も
-      // currentProjectId基準のため通常は同じ値になるが、insert側を信頼できる値として優先する）
-      project_id: taskData.projectId,
-    };
-
-    let taskId: string;
-
-    if (editingTask) {
-      taskId = editingTask.id;
-      const { error } = await supabase.from('tasks').update(taskRow).eq('id', taskId);
-      if (error) {
-        alert('タスクの更新に失敗しました: ' + error.message);
-        return;
-      }
-    } else {
-      const { data, error } = await supabase
-        .from('tasks')
-        .insert({ ...taskRow, status: 'todo', created_by: currentUserId, project_id: currentProjectId })
-        .select('id')
-        .single();
-      if (error || !data) {
-        alert('タスクの作成に失敗しました: ' + (error?.message ?? '不明なエラー'));
-        return;
-      }
-      taskId = data.id;
-    }
-
-    await supabase.from('task_assignees').delete().eq('task_id', taskId);
-    if (taskData.assignees.length > 0) {
-      await supabase.from('task_assignees').insert(
-        taskData.assignees.map((userId) => ({ task_id: taskId, user_id: userId }))
-      );
-    }
-
-    await supabase.from('task_subtasks').delete().eq('task_id', taskId);
-    if (taskData.subtasks && taskData.subtasks.length > 0) {
-      await supabase.from('task_subtasks').insert(
-        taskData.subtasks.map((s) => ({ task_id: taskId, title: s.title, done: s.done }))
-      );
-    }
-
-    await refreshTasks();
-    await refreshNotificationTasks(); // 保存したタスクが他プロジェクトの場合もあるため通知も更新
-    setIsModalOpen(false);
-    setEditingTask(undefined);
-  };
-
-  // タスクの削除（task_assignees・task_subtasksはcascadeで自動的に消える）。RLS上、
-  // 削除は作成者のみ可能（docs/詳細設計書_認証DB編.md3.1）。他人のタスクを削除しようとすると
-  // RLSに除外されて「0件削除」で成功扱いになるため、件数を確認して理由を伝える
-  const handleDeleteTask = async (id: string) => {
-    const { error, count } = await supabase.from('tasks').delete({ count: 'exact' }).eq('id', id);
-    if (error) {
-      alert('削除に失敗しました: ' + error.message);
-      return;
-    }
-    if (count === 0) {
-      alert('このタスクは削除できません（作成者のみ削除できます）。');
-      return;
-    }
-    await refreshTasks();
-    await refreshNotificationTasks(); // 削除したタスクの通知も即座に消す
-  };
-
-  // カンバンのドラッグ＆ドロップ等によるステータス変更。
-  // doing以外へ移動した場合は差し戻し理由(returnReason)をクリアする
-  const handleUpdateStatus = async (id: string, newStatus: Task['status']) => {
-    const current = tasks.find((task) => task.id === id);
-    const { error } = await supabase
-      .from('tasks')
-      .update({
-        status: newStatus,
-        return_reason: newStatus === 'doing' ? (current?.returnReason ?? null) : null,
-      })
-      .eq('id', id);
-    if (error) {
-      alert('ステータスの更新に失敗しました: ' + error.message);
-      return;
-    }
-    await refreshTasks();
-    await refreshNotificationTasks(); // ステータス変更（遅延解消等）を通知へ即座に反映
-  };
-
-  // 承認申請／承認完了／差し戻しの3アクションをまとめて処理する
-  const handleProcessAction = async (id: string, action: 'apply' | 'approve' | 'reject', reason?: string) => {
-    // reasonはRejectReasonModal側で必ずtrim済み・非空文字であることを保証済みのため、
-    // ここでのデフォルト文言による補完（フォールバック）は不要（B案対応）
-    const patch =
-      action === 'apply' ? { status: 'review', return_reason: null } :
-      action === 'approve' ? { status: 'done', return_reason: null } :
-      { status: 'doing', return_reason: reason ?? null };
-
-    const { error } = await supabase.from('tasks').update(patch).eq('id', id);
-    if (error) {
-      alert('操作に失敗しました: ' + error.message);
-      return;
-    }
-    await refreshTasks();
-    await refreshNotificationTasks(); // 承認申請・承認・差し戻しを通知へ即座に反映
-  };
+  // ---- タスク操作ハンドラー ----
+  // handleSaveTask・handleDeleteTask・handleUpdateStatus・handleProcessAction・
+  // handleResetSampleDataはuseTasks.tsへ切り出し済み。ここに残るのは、タスク編集モーダルや
+  // 通知メニューなど「まだ別フックに切り出していないUI状態」と組み合わせるハンドラーのみ
 
   // タスクカードクリック等によるタスク編集モーダルの起動
   const handleStartEdit = (task: Task) => {
@@ -689,79 +414,11 @@ export default function App() {
     }
   };
 
-  // メンバー管理モーダルの開閉（ProjectManagementView側でオーナーにのみ
-  // 「メンバー管理」ボタンを表示）
-  const handleOpenMemberModal = (project: Project) => setMemberModalProjectId(project.id);
-  const handleCloseMemberModal = () => setMemberModalProjectId(null);
-
-  // モーダルに渡す対象プロジェクトの実体。projects一覧から都度参照するため、
-  // 削除・編集等でprojectsが更新されてもモーダル側の表示は自動的に追従する
+  // メンバー管理モーダルに渡す対象プロジェクトの実体。useProjectMembers.ts側の
+  // memberModalProjectId（IDのみ）と、useProjects.ts側のprojects一覧を組み合わせて
+  // 導出する必要があるため、両フックの戻り値を使うApp.tsx側に残す。projects一覧から
+  // 都度参照するため、削除・編集等でprojectsが更新されてもモーダル側の表示は自動的に追従する
   const memberModalProject = projects.find((p) => p.id === memberModalProjectId);
-
-  // メンバーの追加（オーナーのみ。RLSの`project_members_insert_owner`で保証）。
-  // 追加自体に確認ダイアログは挟まない（TaskForm.tsxの担当者選択と同様、選ぶだけの軽い操作のため）
-  const handleAddMember = async (userId: string) => {
-    if (!memberModalProjectId) return;
-    const { error } = await supabase
-      .from('project_members')
-      .insert({ project_id: memberModalProjectId, user_id: userId, role: 'member' });
-    if (error) {
-      alert('メンバーの追加に失敗しました: ' + error.message);
-      return;
-    }
-    await refreshProjectSummaries();
-  };
-
-  // メンバーの削除（オーナーのみ。RLSの`project_members_delete_owner_or_self`で保証。
-  // オーナー行自体は同ポリシーの`role <> 'owner'`条件により削除できない）
-  const handleRemoveMember = async (userId: string) => {
-    if (!memberModalProjectId) return;
-    const targetName = users.find((u) => u.id === userId)?.name ?? 'このユーザー';
-    if (!window.confirm(`「${targetName}」さんをこのプロジェクトから削除しますか？`)) return;
-
-    const { error } = await supabase
-      .from('project_members')
-      .delete()
-      .eq('project_id', memberModalProjectId)
-      .eq('user_id', userId);
-    if (error) {
-      alert('メンバーの削除に失敗しました: ' + error.message);
-      return;
-    }
-    await refreshProjectSummaries();
-  };
-
-  // オーナー譲渡（docs/要件定義書_プロジェクト管理機能.md§6.1）。本人確認はRPC側
-  // （security definer）で行うため、確認ダイアログを挟んで呼ぶだけでよい
-  const handleTransferOwnership = async (userId: string) => {
-    if (!memberModalProjectId) return;
-    const targetName = users.find((u) => u.id === userId)?.name ?? 'このユーザー';
-    if (!window.confirm(`オーナーを「${targetName}」さんに譲渡しますか？\nあなた自身はメンバーになります。`)) return;
-
-    const { error } = await supabase.rpc('transfer_project_ownership', {
-      p_project_id: memberModalProjectId,
-      p_new_owner_id: userId,
-    });
-    if (error) {
-      alert('オーナー譲渡に失敗しました: ' + error.message);
-      return;
-    }
-    handleCloseMemberModal();
-    await refreshProjectSummaries();
-  };
-
-  // 退会フロー用のオーナー譲渡。上のhandleTransferOwnershipはメンバー管理モーダル専用
-  // のため、モーダルを持たない別関数として用意する。OwnershipHandoverSection.tsx側の
-  // 行ごとのエラー表示に使うためエラーメッセージ文字列（またはnull）を返す
-  const handleTransferOwnershipForRetirement = async (projectId: string, newOwnerId: string): Promise<string | null> => {
-    const { error } = await supabase.rpc('transfer_project_ownership', {
-      p_project_id: projectId,
-      p_new_owner_id: newOwnerId,
-    });
-    if (error) return 'オーナー譲渡に失敗しました: ' + error.message;
-    await refreshProjectSummaries();
-    return null;
-  };
 
   // プロジェクトからの脱退（オーナー以外のメンバー本人のみ。RLSの
   // `project_members_delete_owner_or_self`で保証）。脱退後の選択状態解除は既存の
@@ -785,55 +442,6 @@ export default function App() {
   // 通知ベルの種類ごとのON/OFFを切り替える（設定ページから呼ばれる）
   const handleToggleNotification = (type: NotificationType) => {
     setNotificationSettings(prev => ({ ...prev, [type]: !prev[type] }));
-  };
-
-  // サンプルタスクへのリセット（docs/要件定義書.md§7）。複数人で共有するため「自分が
-  // 作成したタスクだけ」を削除して作り直す。削除はプロジェクトを跨ぐが、作り直す1件は
-  // project_idが必須のため選択中プロジェクトへ作成する
-  const handleResetSampleData = async () => {
-    if (!currentProjectId) {
-      alert('プロジェクトが選択されていません。サイドバーからプロジェクトを選択してください。');
-      return;
-    }
-
-    const confirmed = window.confirm(
-      '自分が作成したタスクをすべて削除し、サンプルタスクを1件作り直します。' +
-      'この操作は元に戻せません（他のユーザーが作成したタスクは削除されません）。よろしいですか？'
-    );
-    if (!confirmed) return;
-
-    const { error: deleteError } = await supabase.from('tasks').delete().eq('created_by', currentUserId);
-    if (deleteError) {
-      alert('リセットに失敗しました: ' + deleteError.message);
-      return;
-    }
-
-    const sample = initialTasks[0];
-    const { data: inserted, error: insertError } = await supabase
-      .from('tasks')
-      .insert({
-        title: sample.title,
-        description: sample.description ?? null,
-        status: sample.status,
-        category: sample.category,
-        start_date: sample.startDate,
-        end_date: sample.endDate,
-        priority: sample.priority,
-        reviewer_id: users.find((u) => u.id !== currentUserId)?.id ?? null,
-        created_by: currentUserId,
-        project_id: currentProjectId,
-      })
-      .select('id')
-      .single();
-
-    if (insertError || !inserted) {
-      alert('サンプルタスクの作成に失敗しました: ' + (insertError?.message ?? '不明なエラー'));
-      return;
-    }
-
-    await supabase.from('task_assignees').insert({ task_id: inserted.id, user_id: currentUserId });
-    await refreshTasks();
-    await refreshNotificationTasks(); // リセットで自分のタスクが入れ替わるため通知も更新
   };
 
   // ダッシュボード／タスクボード／スケジュールでプロジェクト未選択の間に出す案内
