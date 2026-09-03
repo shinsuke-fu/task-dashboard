@@ -7,7 +7,7 @@
  * （規約②）。機能一覧はdocs/基本設計書.md§6参照。
  */
 import { useState, useEffect, useRef } from 'react';
-import type { Task, NotificationType, NotificationItem, Project } from './types/task';
+import type { Task, Project } from './types/task';
 import { supabase } from './lib/supabaseClient';
 import { useAuthSession } from './hooks/useAuthSession';
 import { useUsers } from './hooks/useUsers';
@@ -16,6 +16,7 @@ import { useViewNavigation } from './hooks/useViewNavigation';
 import { useProjects } from './hooks/useProjects';
 import { useProjectMembers } from './hooks/useProjectMembers';
 import { useTasks } from './hooks/useTasks';
+import { useNotifications } from './hooks/useNotifications';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/kanban/KanbanBoard';
 import TaskForm from './components/TaskForm';
@@ -32,16 +33,9 @@ import MemberManagementModal from './components/project/MemberManagementModal';
 import { NotificationsView } from './components/notifications/NotificationsView';
 import { getTodayJstDateString } from './utils/date';
 
-// 通知ベルに表示するアラートアイテムの型（NotificationItem）は、通知専用画面
+// 通知ベルまわり（開閉状態・種類ごとのON/OFF設定・「自分宛て」アラート一覧の導出）は
+// useNotifications.tsへ切り出し済み。通知アイテムの型（NotificationItem）は通知専用画面
 // （NotificationsView.tsx）とも共有するため、types/task.tsに集約している
-
-// 通知ベルの4種類すべてを初期状態でON（従来通りの挙動）にしたデフォルト設定
-const defaultNotificationSettings: Record<NotificationType, boolean> = {
-  overdue: true,
-  dueToday: true,
-  rejected: true,
-  reviewRequested: true,
-};
 
 // JST基準の「今日」からの相対日数でYYYY-MM-DD文字列を作る（ポートフォリオを見る
 // タイミングに関わらず、常に「今日から見て自然な期日」のサンプルになるようにするため。
@@ -194,16 +188,6 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>(undefined);
 
-  // 通知ベルのドロップダウン開閉状態
-  const [isNotifOpen, setIsNotifOpen] = useState<boolean>(false);
-  const notifDropdownRef = useRef<HTMLDivElement>(null);
-
-  // 通知ベルの種類ごとのON/OFF設定。これも個人の好みなので引き続きlocalStorageに保存する
-  const [notificationSettings, setNotificationSettings] = useState<Record<NotificationType, boolean>>(() => {
-    const saved = localStorage.getItem('dashboard_notification_settings');
-    return saved ? JSON.parse(saved) : defaultNotificationSettings;
-  });
-
   // グローバル操作フィルターバー（担当者・カテゴリ・優先度）の選択状態。
   // 画面（タブ）ごとには分けず、全画面共通のフィルターとして扱う方針
   const [filterUser, setFilterUser] = useState<string>('all');
@@ -257,6 +241,17 @@ export default function App() {
     handleResetSampleData,
   } = useTasks(isAuthenticated, currentUserId, currentProjectId, users, editingTask, setIsModalOpen, setEditingTask);
 
+  // 通知ベルまわり（開閉状態・ON/OFF設定・「自分宛て」アラート一覧の導出。useNotifications.ts
+  // へ切り出し済み）。notificationTasksはuseTasks()の戻り値のため、useTasks()より後で呼ぶ必要がある
+  const {
+    isNotifOpen,
+    setIsNotifOpen,
+    notifDropdownRef,
+    notificationSettings,
+    notifications,
+    handleToggleNotification,
+  } = useNotifications(notificationTasks, currentUserId);
+
   // ログイン状態が変わったらリセット・プロジェクトメンバー集計を取得し直す（参加
   // プロジェクト一覧はuseProjects.ts側の、担当者一覧はuseUsers.ts側の、通知用タスク一覧は
   // useTasks.ts側の、同じisAuthenticated依存のeffectで並行して取得される）
@@ -303,23 +298,6 @@ export default function App() {
     refreshProjectSummaries();
   }, [isAuthenticated, currentView]);
 
-  // 通知メニューの「外側クリックで閉じる」処理。
-  // 設定は独立したページ（currentView==='settings'）になったため、この仕組みとは無関係
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (notifDropdownRef.current && !notifDropdownRef.current.contains(event.target as Node)) {
-        setIsNotifOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // 通知ON/OFF設定が変わるたびにlocalStorageへ永続化
-  useEffect(() => {
-    localStorage.setItem('dashboard_notification_settings', JSON.stringify(notificationSettings));
-  }, [notificationSettings]);
-
   // ---- 派生データ（stateから都度計算する値） ----
 
   // フィルターバー右側に表示する「抽出件数」。担当者・カテゴリ・優先度の条件すべてに一致するタスク数
@@ -349,35 +327,6 @@ export default function App() {
     const members = projectMembers[p.id] ?? [];
     const isOwner = members.some((m) => m.userId === currentUserId && m.role === 'owner');
     return isOwner && members.length > 1;
-  });
-
-  // 通知ベルの「自分宛て」アラート一覧。notificationTasks（全プロジェクト横断。
-  // docs/要件定義書.md§6）から毎レンダー時に導出する。種類ごとに設定ページ
-  // （SettingsView.tsx）でON/OFFでき、OFFの種類はここで一切生成しない
-  const todayStr = getTodayJstDateString();
-  const notifications: NotificationItem[] = [];
-
-  notificationTasks.forEach((task) => {
-    const isMine = task.assignees?.includes(currentUserId);
-
-    // 遅延中・当日締切は「自分が担当者になっている」未完了タスクに絞って通知する
-    if (isMine && task.status !== 'done' && task.endDate) {
-      if (notificationSettings.overdue && task.endDate < todayStr) {
-        notifications.push({ id: `${task.id}-overdue`, type: 'overdue', task, message: `「${task.title}」の期日が過ぎています` });
-      } else if (notificationSettings.dueToday && task.endDate === todayStr) {
-        notifications.push({ id: `${task.id}-dueToday`, type: 'dueToday', task, message: `「${task.title}」の期日は本日です` });
-      }
-    }
-
-    // 自分のタスクが差し戻された（進行中に戻され、かつ差し戻し理由が付いている）
-    if (notificationSettings.rejected && isMine && task.status === 'doing' && task.returnReason) {
-      notifications.push({ id: `${task.id}-rejected`, type: 'rejected', task, message: `「${task.title}」が差し戻されました` });
-    }
-
-    // 自分がレビュアーに指定されていて、承認待ち（review）のタスクがある
-    if (notificationSettings.reviewRequested && task.reviewerId === currentUserId && task.status === 'review') {
-      notifications.push({ id: `${task.id}-reviewRequested`, type: 'reviewRequested', task, message: `「${task.title}」が承認待ちです` });
-    }
   });
 
   // ---- タスク操作ハンドラー ----
@@ -437,11 +386,6 @@ export default function App() {
     }
     await refreshProjects();
     await refreshProjectSummaries();
-  };
-
-  // 通知ベルの種類ごとのON/OFFを切り替える（設定ページから呼ばれる）
-  const handleToggleNotification = (type: NotificationType) => {
-    setNotificationSettings(prev => ({ ...prev, [type]: !prev[type] }));
   };
 
   // ダッシュボード／タスクボード／スケジュールでプロジェクト未選択の間に出す案内
