@@ -62,8 +62,8 @@
 - 画面（ルーティング相当）：`src/pages/`（`Login.tsx` `ResetPassword.tsx`）
 - ロジック・設定：`camelCase.ts` / `lowercase.ts`（`src/utils/` `src/lib/` `src/types/`
   `src/constants/`）。1ファイル1関心を維持する
-- 新しくカスタムフックを作る場合は`src/hooks/useXxx.ts`に置く（現状フックは未使用だが、
-  増える場合はこの配置にする）
+- カスタムフックは`src/hooks/useXxx.ts`に置く（2026-09-03、`App.tsx`をドメインごとに
+  9個のフックへ分割済み。一覧は`docs/基本設計書.md`4.0参照）。新しく増やす場合も同じ配置にする
 
 ## Git・コミット運用（提案。既存の慣習と違えば教えてください）
 
