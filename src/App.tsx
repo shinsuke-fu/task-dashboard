@@ -17,6 +17,7 @@ import { useProjects } from './hooks/useProjects';
 import { useProjectMembers } from './hooks/useProjectMembers';
 import { useTasks } from './hooks/useTasks';
 import { useNotifications } from './hooks/useNotifications';
+import { useTaskFilters } from './hooks/useTaskFilters';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/kanban/KanbanBoard';
 import TaskForm from './components/TaskForm';
@@ -188,12 +189,6 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>(undefined);
 
-  // グローバル操作フィルターバー（担当者・カテゴリ・優先度）の選択状態。
-  // 画面（タブ）ごとには分けず、全画面共通のフィルターとして扱う方針
-  const [filterUser, setFilterUser] = useState<string>('all');
-  const [filterCategory, setFilterCategory] = useState<string>('all');
-  const [filterPriority, setFilterPriority] = useState<string>('all');
-
   // 差し戻し対象のタスクID（差し戻しモーダルの表示・非表示もこのstateで制御）
   const [rejectTargetId, setRejectTargetId] = useState<string | null>(null);
 
@@ -240,6 +235,20 @@ export default function App() {
     handleProcessAction,
     handleResetSampleData,
   } = useTasks(isAuthenticated, currentUserId, currentProjectId, users, editingTask, setIsModalOpen, setEditingTask);
+
+  // グローバル操作フィルターバー（担当者・カテゴリ・優先度）の選択状態と抽出件数・カテゴリ
+  // 選択肢（useTaskFilters.tsへ切り出し済み）。tasksはuseTasks()の戻り値のため、
+  // useTasks()より後で呼ぶ必要がある
+  const {
+    filterUser,
+    setFilterUser,
+    filterCategory,
+    setFilterCategory,
+    filterPriority,
+    setFilterPriority,
+    currentFilteredCount,
+    availableCategories,
+  } = useTaskFilters(tasks);
 
   // 通知ベルまわり（開閉状態・ON/OFF設定・「自分宛て」アラート一覧の導出。useNotifications.ts
   // へ切り出し済み）。notificationTasksはuseTasks()の戻り値のため、useTasks()より後で呼ぶ必要がある
@@ -299,17 +308,6 @@ export default function App() {
   }, [isAuthenticated, currentView]);
 
   // ---- 派生データ（stateから都度計算する値） ----
-
-  // フィルターバー右側に表示する「抽出件数」。担当者・カテゴリ・優先度の条件すべてに一致するタスク数
-  const currentFilteredCount = tasks.filter((task) => {
-    const matchesUser = filterUser === 'all' || task.assignees.includes(filterUser);
-    const matchesCategory = filterCategory === 'all' || task.category === filterCategory;
-    const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
-    return matchesUser && matchesCategory && matchesPriority;
-  }).length;
-
-  // カテゴリ絞り込みドロップダウンの選択肢。実際に使われているカテゴリ値から動的生成
-  const availableCategories = Array.from(new Set(tasks.map((t) => t.category).filter(Boolean)));
 
   // 自分のプロフィール（ヘッダーのアバター表示用）
   const myProfile = users.find((u) => u.id === currentUserId);
