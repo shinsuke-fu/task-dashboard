@@ -12,6 +12,7 @@ import { supabase } from './lib/supabaseClient';
 import { useAuthSession } from './hooks/useAuthSession';
 import { useUsers } from './hooks/useUsers';
 import { useTheme, themeLabels } from './hooks/useTheme';
+import { useViewNavigation } from './hooks/useViewNavigation';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/kanban/KanbanBoard';
 import TaskForm from './components/TaskForm';
@@ -290,18 +291,23 @@ export default function App() {
   // setIsSidebarOpenをコールバックとして注入する）
   const { theme, setTheme } = useTheme(() => setIsSidebarOpen(false));
 
-  // 現在表示中のビュー（'dashboard' | 'tasks' | その他）。文字列切替による一面集約型ルーティング
-  const [currentView, setCurrentView] = useState<string>('dashboard');
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  // 画面切り替え・サイドバー開閉・アバター拡大表示（useViewNavigation.tsへ切り出し済み）
+  const {
+    currentView,
+    setCurrentView,
+    isSidebarOpen,
+    setIsSidebarOpen,
+    isAvatarPreviewOpen,
+    setIsAvatarPreviewOpen,
+    handleViewChange,
+  } = useViewNavigation();
+
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>(undefined);
 
   // 通知ベルのドロップダウン開閉状態
   const [isNotifOpen, setIsNotifOpen] = useState<boolean>(false);
   const notifDropdownRef = useRef<HTMLDivElement>(null);
-
-  // ヘッダーのアバター画像をクリックしたときの拡大表示（ImageLightbox）の開閉状態
-  const [isAvatarPreviewOpen, setIsAvatarPreviewOpen] = useState<boolean>(false);
 
   // 通知ベルの種類ごとのON/OFF設定。これも個人の好みなので引き続きlocalStorageに保存する
   const [notificationSettings, setNotificationSettings] = useState<Record<NotificationType, boolean>>(() => {
@@ -748,15 +754,6 @@ export default function App() {
     if (rejectTargetId) {
       await handleProcessAction(rejectTargetId, 'reject', reason);
       handleCloseRejectModal();
-    }
-  };
-
-  // サイドバーの項目選択によるビュー切り替え。スマホ幅（オーバーレイ表示）で選択した場合は、
-  // 選択と同時にサイドバーを閉じてメイン画面が見えるようにする（PC幅では常時表示のため閉じない）
-  const handleViewChange = (view: string) => {
-    setCurrentView(view);
-    if (window.innerWidth < 768) {
-      setIsSidebarOpen(false);
     }
   };
 
