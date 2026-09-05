@@ -18,7 +18,10 @@ interface SupabaseProjectRow {
   name: string;
   description: string | null;
   status: string;
-  created_by: string;
+  // 作成者が退会等でアカウント削除されると、supabase-migration-projects-created-by-nullable.sql
+  // 適用後はnullになりうる（削除前のcreated_byがそのアカウントを指していた場合のみ。詳細は
+  // 引継ぎメモ.md参照）
+  created_by: string | null;
 }
 
 const mapRowToProject = (row: SupabaseProjectRow): Project => ({
