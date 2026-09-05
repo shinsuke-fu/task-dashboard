@@ -5,6 +5,7 @@
  * ハンドラーに委譲し、このコンポーネントはPropsで受け取った内容を表示するだけ（規約①）。
  */
 import type { Project, User } from '../../types/task';
+import UserPicker from '../UserPicker';
 
 interface ProjectMemberInfo {
   userId: string;
@@ -112,21 +113,16 @@ export default function MemberManagementModal({
           <label className="block text-[10px] font-black text-text-sub uppercase mb-1.5">
             メンバーを追加
           </label>
-          {candidates.length === 0 ? (
-            <p className="text-[11px] text-text-sub font-medium">追加できる登録ユーザーがいません。</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {candidates.map((user) => (
-                <button
-                  key={user.id}
-                  onClick={() => onAddMember(user.id)}
-                  className="flex items-center gap-1.5 h-8 px-3 rounded-xl border text-[11px] font-bold cursor-pointer transition bg-base border-border-card text-text-sub hover:text-accent hover:border-accent/40 hover:bg-accent/10"
-                >
-                  ＋ {user.name}
-                </button>
-              ))}
-            </div>
-          )}
+          <UserPicker
+            mode="single"
+            users={candidates}
+            value={[]}
+            onChange={(ids) => {
+              if (ids[0]) onAddMember(ids[0]);
+            }}
+            placeholder="追加するメンバーを検索..."
+            emptyMessage="追加できる登録ユーザーがいません"
+          />
         </div>
 
         <div className="flex justify-end pt-2 border-t border-border-card/30">
