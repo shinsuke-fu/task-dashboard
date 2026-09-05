@@ -78,5 +78,7 @@ export interface Project {
   name: string;
   description?: string;
   status: ProjectStatus;
-  createdBy: string; // 作成者のUser ID。オーナー自体はproject_members側のroleで管理する
+  createdBy: string | null; // 作成者のUser ID。オーナー自体はproject_members側のroleで管理するため、
+  // 作成者が退会等でアカウント削除された後もプロジェクト自体は残り続け、その場合createdByはnullになる
+  // （supabase-migration-projects-created-by-nullable.sql参照）
 }
